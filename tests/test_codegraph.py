@@ -247,7 +247,8 @@ def test_clustering_and_exporter():
 
         # Verify agent files contents
         agents_txt = (output.parent / "AGENTS.md").read_text()
-        assert "Rules for AI Agents" in agents_txt
+        assert "Guidelines for AI Agents" in agents_txt
+
 
         prompt_txt = (output / "AGENT_PROMPT.md").read_text()
         assert "Codebase Architecture Analysis Prompt" in prompt_txt

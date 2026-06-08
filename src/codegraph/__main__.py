@@ -183,26 +183,35 @@ Follow these steps in order. Do not skip any steps.
 
 ### Step 1 - Ensure codegraph is installed
 
-Check if the `codegraph` CLI is available in the current environment:
+Check and locate the `codegraph` executable. To support virtual environments, resolve the binary in the following priority order:
+1. Local virtual environment: `.venv/bin/codegraph` or `venv/bin/codegraph`
+2. Global command: `codegraph` (installed globally or via uv tool)
+
+You can use this shell logic to resolve the executable:
 ```bash
-if ! command -v codegraph >/dev/null 2>&1; then
-    # Try installing it globally using uv
-    if command -v uv >/dev/null 2>&1; then
+if [ -f ".venv/bin/codegraph" ]; then
+    CODEGRAPH_BIN=".venv/bin/codegraph"
+elif [ -f "venv/bin/codegraph" ]; then
+    CODEGRAPH_BIN="venv/bin/codegraph"
+else
+    if ! command -v codegraph >/dev/null 2>&1; then
         uv tool install codegraph
-    else
-        python3 -m pip install --break-system-packages .
     fi
+    CODEGRAPH_BIN="codegraph"
 fi
+echo "Using codegraph binary: $CODEGRAPH_BIN"
 ```
 
 ### Step 2 - Build the Knowledge Graph
 
-Run the `codegraph build` command on the specified directory:
+Run the resolved `$CODEGRAPH_BIN` on the specified directory:
 ```bash
-codegraph build INPUT_PATH
+$CODEGRAPH_BIN build INPUT_PATH
 # Or with additional exclude arguments if provided by the user
 ```
-Replace `INPUT_PATH` with the resolved target path (e.g. `.`). This will create the `.codegraph/` folder containing the main `README.md`, `AGENT_PROMPT.md`, `AGENTS.md`, `nodes/`, and `components/`.
+*(Replace `INPUT_PATH` with the resolved target path, e.g. `.`)*
+
+If the command fails or errors out, capture the terminal stderr/logs, display them to the user with a helpful explanation, and ask them if they want to exclude specific directories or fix the errors. Do not fail silently.
 
 ### Step 3 - Perform Deep Architectural Analysis
 
@@ -214,7 +223,8 @@ Once the graph is built successfully:
    - **系统架构评估**：说明代码库的设计模式、模块化水准、物理目录与逻辑组件契合度。
    - **核心抽象与边界评估**：对 God Nodes 进行深入把脉，分析哪些 is 核心支撑，哪些职责过重（God Object / Fat Class）可能导致高风险。
    - **潜在瓶颈与架构重构建议**：指出高耦合风险点、循环依赖负面影响，并给出具体、可操作的重构优化方案（如解耦、提取接口、依赖倒置等）。
-5. Write the completed report into `<path>/.codegraph/README.md` under the `## AI 架构深度洞察 (AI Architectural Insights)` section, replacing any placeholder instructions.
+5. Read the existing `<path>/.codegraph/README.md` first. If there's an existing `## AI 架构深度洞察 (AI Architectural Insights)` section, merge your new findings with it rather than silently overwriting and discarding previous edits.
+6. Write the completed report into `<path>/.codegraph/README.md` under the `## AI 架构深度洞察 (AI Architectural Insights)` section, replacing any placeholder instructions.
 
 ### Step 4 - Present Summary to the User
 
