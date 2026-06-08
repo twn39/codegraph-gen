@@ -1,0 +1,34 @@
+[project]
+name = "codegraph"
+version = "0.1.0"
+description = "AST-based codebase knowledge graph generator in Markdown"
+readme = "README.md"
+authors = [
+    { name = "curry tang", email = "curry_tang@apple.com" }
+]
+requires-python = ">=3.12"
+dependencies = [
+    "networkx>=3.0",
+    "tree-sitter>=0.23.0",
+    "tree-sitter-python",
+    "tree-sitter-javascript",
+    "tree-sitter-typescript",
+    "tree-sitter-go",
+    "tree-sitter-rust",
+    "tree-sitter-swift",
+    "click>=8.0.0",
+    "rich>=13.0.0",
+    "pydantic>=2.0.0"
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0.0",
+]
+
+[project.scripts]
+codegraph = "codegraph.__main__:main"
+
+[build-system]
+requires = ["uv_build>=0.9.26,<0.10.0"]
+build-backend = "uv_build"

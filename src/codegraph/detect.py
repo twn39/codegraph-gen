@@ -1,0 +1,55 @@
+import logging
+from pathlib import Path
+from codegraph.config import CodegraphConfig, LANGUAGE_EXTENSIONS
+
+logger = logging.getLogger(__name__)
+
+def discover_files(config: CodegraphConfig) -> list[tuple[Path, str]]:
+    """
+    Recursively discovers source files in the workspace directory.
+    Filters by allowed languages and ignores files/directories in exclusions.
+    
+    Returns:
+        List of tuples: (absolute_file_path, language_name)
+    """
+    found_files = []
+    workspace = config.workspace_dir.resolve()
+    
+    # Map extension -> language
+    ext_to_lang = {}
+    for lang in config.languages:
+        if lang in LANGUAGE_EXTENSIONS:
+            for ext in LANGUAGE_EXTENSIONS[lang]:
+                ext_to_lang[ext] = lang
+
+    def is_ignored(path: Path) -> bool:
+        # Check if any part of the path is in config.exclusions
+        try:
+            rel_parts = path.relative_to(workspace).parts
+        except ValueError:
+            # Not under workspace
+            return True
+            
+        for part in rel_parts:
+            if part in config.exclusions:
+                return True
+        return False
+
+    def scan_dir(directory: Path):
+        try:
+            for item in directory.iterdir():
+                if is_ignored(item):
+                    continue
+                if item.is_dir():
+                    scan_dir(item)
+                elif item.is_file():
+                    ext = item.suffix.lower()
+                    if ext in ext_to_lang:
+                        found_files.append((item.resolve(), ext_to_lang[ext]))
+        except PermissionError:
+            logger.warning(f"Permission denied: {directory}")
+        except Exception as e:
+            logger.error(f"Error scanning {directory}: {e}")
+
+    scan_dir(workspace)
+    return found_files

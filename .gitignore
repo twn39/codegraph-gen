@@ -1,0 +1,23 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+# Codegraph vault and agent rules
+.codegraph/
+AGENTS.md
+
+# Third party dependencies
+third_party/
+.gitmodules
+
+# IDE & OS files
+.DS_Store
+.vscode/
+.idea/
