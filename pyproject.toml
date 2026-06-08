@@ -18,12 +18,16 @@ dependencies = [
     "tree-sitter-swift",
     "click>=8.0.0",
     "rich>=13.0.0",
-    "pydantic>=2.0.0"
+    "pydantic>=2.0.0",
+    "tree-sitter-c>=0.24.2",
+    "tree-sitter-cpp>=0.23.4",
 ]
 
 [dependency-groups]
 dev = [
     "pytest>=8.0.0",
+    "ruff>=0.15.16",
+    "ty>=0.0.44",
 ]
 
 [project.scripts]

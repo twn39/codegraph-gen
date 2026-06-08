@@ -1,50 +1,278 @@
 import logging
 from pathlib import Path
 import networkx as nx
-from codegraph.parser.base import ExtractionResult, NodeSchema, EdgeSchema
+from codegraph.parser.base import ExtractionResult
 
 logger = logging.getLogger(__name__)
+
+# Common builtin/standard library functions for languages to avoid call graph pollution
+BUILTIN_FUNCTIONS: dict[str, set[str]] = {
+    "python": {
+        "print",
+        "len",
+        "range",
+        "str",
+        "int",
+        "dict",
+        "list",
+        "set",
+        "tuple",
+        "open",
+        "sum",
+        "min",
+        "max",
+        "abs",
+        "enumerate",
+        "zip",
+        "any",
+        "all",
+        "map",
+        "filter",
+        "super",
+        "repr",
+        "type",
+        "isinstance",
+        "issubclass",
+        "dir",
+        "id",
+        "hash",
+        "input",
+    },
+    "go": {
+        "print",
+        "println",
+        "panic",
+        "recover",
+        "make",
+        "new",
+        "len",
+        "cap",
+        "append",
+        "copy",
+        "delete",
+        "complex",
+        "real",
+        "imag",
+        "close",
+    },
+    "javascript": {
+        "console",
+        "require",
+        "module",
+        "exports",
+        "process",
+        "window",
+        "document",
+        "eval",
+        "parseInt",
+        "parseFloat",
+        "isNaN",
+        "isFinite",
+        "decodeURI",
+        "encodeURI",
+        "Object",
+        "Array",
+        "String",
+        "Number",
+        "Boolean",
+        "Date",
+        "RegExp",
+        "Error",
+        "Map",
+        "Set",
+        "Promise",
+        "JSON",
+        "Math",
+        "setTimeout",
+        "clearTimeout",
+        "setInterval",
+        "clearInterval",
+    },
+    "typescript": {
+        "console",
+        "require",
+        "module",
+        "exports",
+        "process",
+        "window",
+        "document",
+        "eval",
+        "parseInt",
+        "parseFloat",
+        "isNaN",
+        "isFinite",
+        "decodeURI",
+        "encodeURI",
+        "Object",
+        "Array",
+        "String",
+        "Number",
+        "Boolean",
+        "Date",
+        "RegExp",
+        "Error",
+        "Map",
+        "Set",
+        "Promise",
+        "JSON",
+        "Math",
+        "setTimeout",
+        "clearTimeout",
+        "setInterval",
+        "clearInterval",
+    },
+    "rust": {
+        "println!",
+        "print!",
+        "format!",
+        "panic!",
+        "vec!",
+        "assert!",
+        "assert_eq!",
+        "Option",
+        "Result",
+        "Some",
+        "None",
+        "Ok",
+        "Err",
+        "Default",
+    },
+    "swift": {
+        "print",
+        "min",
+        "max",
+        "abs",
+        "count",
+        "fatalError",
+        "precondition",
+        "assert",
+    },
+    "c": {
+        "printf",
+        "scanf",
+        "malloc",
+        "free",
+        "calloc",
+        "realloc",
+        "memcpy",
+        "memset",
+        "strcpy",
+        "strlen",
+        "strcmp",
+        "strcat",
+        "exit",
+        "fopen",
+        "fclose",
+        "fprintf",
+        "sprintf",
+        "sizeof",
+    },
+    "cpp": {
+        "printf",
+        "scanf",
+        "malloc",
+        "free",
+        "calloc",
+        "realloc",
+        "memcpy",
+        "memset",
+        "strcpy",
+        "strlen",
+        "strcmp",
+        "strcat",
+        "exit",
+        "fopen",
+        "fclose",
+        "fprintf",
+        "sprintf",
+        "sizeof",
+        "std",
+        "cout",
+        "cin",
+        "endl",
+        "vector",
+        "string",
+        "map",
+        "set",
+        "list",
+        "shared_ptr",
+        "unique_ptr",
+        "make_shared",
+        "make_unique",
+        "move",
+    },
+}
+
+
+class FileSymbolScope:
+    def __init__(self, file_path: str, language: str):
+        self.file_path = file_path
+        self.language = language
+        # Maps local symbol name -> fully qualified Node ID (e.g. {"MyClass": "foo.py::MyClass"})
+        self.declared_symbols: dict[str, str] = {}
+        # Maps import alias or local name -> (target_file_id, original_name)
+        self.imported_symbols: dict[str, tuple[str, str]] = {}
+        # List of target files that were wildcard imported (e.g. from X import *)
+        self.wildcard_imports: list[str] = []
+
 
 def build_graph(extractions: list[ExtractionResult], workspace_dir: Path) -> nx.DiGraph:
     """
     Assembles a list of ExtractionResults into a single directed graph
-    and resolves call, inherit, and import edges.
+    and resolves call, inherit, and import edges using a two-pass scope resolver.
     """
     G = nx.DiGraph()
-    
+
     # 1. Add all nodes to the graph
     for ext in extractions:
         for node in ext.nodes:
             G.add_node(node.id, **node.model_dump())
-            
-    # Node set for quick lookup
+
     node_ids = set(G.nodes)
 
-    # 2. Build registries for symbol resolution
-    # Map from simple label (e.g., 'login') -> list of node IDs
-    global_symbol_map: dict[str, list[str]] = {}
-    # Map from file relative path -> list of symbol node IDs defined in it
-    file_symbols: dict[str, list[str]] = {}
-    
-    for nid, data in G.nodes(data=True):
-        label = data.get("label")
-        sf = data.get("source_file")
-        if label:
-            global_symbol_map.setdefault(label, []).append(nid)
-        if sf:
-            file_symbols.setdefault(sf, []).append(nid)
-
-    # Helper: resolve local file path from Go/Python import targets
-    # E.g., target "codegraph/parser" -> "src/codegraph/parser/__init__.py" or "src/codegraph/parser.py"
+    # Helper: resolve local file path from Go/Python/C/C++ import targets
     def resolve_import_to_file_node(source_file: str, target: str) -> str | None:
-        # 1. Clean relative paths
+        # Check if target is a direct relative/absolute file path
+        # (either starting with '.' or containing '/' or having a C/C++ file extension)
+        is_path_target = (
+            target.startswith(".")
+            or "/" in target
+            or "\\" in target
+            or any(
+                target.endswith(ext)
+                for ext in (".h", ".hpp", ".hxx", ".c", ".cpp", ".cc", ".cxx")
+            )
+        )
+
+        if is_path_target:
+            source_dir = (Path(workspace_dir) / Path(source_file)).parent
+            try:
+                resolved_path = (source_dir / target).resolve()
+                rel_path = str(resolved_path.relative_to(workspace_dir))
+                if rel_path in node_ids:
+                    return rel_path
+                # Try adding standard extensions
+                for suff in (".h", ".hpp", ".hxx", ".c", ".cpp", ".cc", ".cxx"):
+                    check_path = rel_path + suff
+                    if check_path in node_ids:
+                        return check_path
+            except Exception:
+                pass
+
+            # Global fallback search for this filename in the workspace (for C/C++ includes)
+            target_name = Path(target).name
+            for nid in node_ids:
+                if G.nodes[nid]["type"] == "file":
+                    if Path(nid).name == target_name:
+                        return nid
+            return None
+
         if target.startswith("."):
             source_dir = Path(workspace_dir) / Path(source_file).parent
             try:
                 resolved_path = (source_dir / target).resolve()
                 rel_path = str(resolved_path.relative_to(workspace_dir))
-                
-                # Check directly or check with suffixes
+
                 for suff in (".py", ".ts", ".js", ".go", ".rs", ".swift"):
                     check_path = rel_path + suff
                     if check_path in node_ids:
@@ -56,183 +284,245 @@ def build_graph(extractions: list[ExtractionResult], workspace_dir: Path) -> nx.
                     return rel_path
             except Exception:
                 pass
-                
-        # 2. Check suffix matching
-        # If target is "utils/helper" or "helper", check if there's any file node matching that path
+
         target_path_part = target.replace(".", "/")
         for nid in node_ids:
             if G.nodes[nid]["type"] == "file":
-                if nid.replace("\\", "/").endswith(target_path_part) or \
-                   nid.replace("\\", "/").endswith(target_path_part + ".py") or \
-                   nid.replace("\\", "/").endswith(target_path_part + ".go") or \
-                   nid.replace("\\", "/").endswith(target_path_part + ".rs"):
+                if (
+                    nid.replace("\\", "/").endswith(target_path_part)
+                    or nid.replace("\\", "/").endswith(target_path_part + ".py")
+                    or nid.replace("\\", "/").endswith(target_path_part + ".go")
+                    or nid.replace("\\", "/").endswith(target_path_part + ".rs")
+                ):
                     return nid
         return None
 
-    # Helper: find target ID for a call/reference
+    # Pass 1: Build Symbol Scopes
+    scopes: dict[str, FileSymbolScope] = {}
+    file_languages: dict[str, str] = {}
+
+    for nid, data in G.nodes(data=True):
+        if data.get("type") == "file":
+            suffix = Path(nid).suffix.lower()
+            lang = "python"
+            for lang_name, exts in {
+                "python": {".py"},
+                "javascript": {".js", ".mjs", ".cjs", ".ts", ".tsx"},
+                "go": {".go"},
+                "rust": {".rs"},
+                "swift": {".swift"},
+                "c": {".c", ".h"},
+                "cpp": {".cpp", ".cc", ".cxx", ".hpp", ".hxx"},
+            }.items():
+                if suffix in exts:
+                    lang = lang_name
+                    break
+            file_languages[nid] = lang
+            scopes[nid] = FileSymbolScope(nid, lang)
+
+    # Populate declared symbols for each scope
+    for nid, data in G.nodes(data=True):
+        sf = data.get("source_file")
+        ntype = data.get("type")
+        label = data.get("label")
+        if sf and ntype != "file" and label and sf in scopes:
+            scopes[sf].declared_symbols[label] = nid
+
+    # Populate imported symbols for each scope
+    for ext in extractions:
+        # Find file node
+        file_node = next((n for n in ext.nodes if n.type == "file"), None)
+        if not file_node:
+            continue
+        file_id = file_node.id
+        if file_id not in scopes:
+            continue
+
+        for edge in ext.edges:
+            if edge.relation == "imports":
+                target_file_id = resolve_import_to_file_node(file_id, edge.target)
+                if target_file_id:
+                    # In C/C++, importing/including a header imports all its symbols as wildcard imports
+                    if scopes[file_id].language in ("c", "cpp"):
+                        scopes[file_id].wildcard_imports.append(target_file_id)
+
+                    # Parse import_map
+                    if edge.import_map:
+                        for local_name, original_name in edge.import_map.items():
+                            if original_name == "*":
+                                scopes[file_id].wildcard_imports.append(target_file_id)
+                            else:
+                                scopes[file_id].imported_symbols[local_name] = (
+                                    target_file_id,
+                                    original_name,
+                                )
+                    else:
+                        # Direct import of a module name (e.g. import module_b)
+                        stem = Path(target_file_id).stem
+                        scopes[file_id].imported_symbols[stem] = (target_file_id, stem)
+
+    # Resolve symbol helper using the scope chain
     def resolve_symbol(caller_id: str, callee_name: str) -> str | None:
         caller_data = G.nodes.get(caller_id)
         if not caller_data:
             return None
         source_file = caller_data["source_file"]
 
-        # Parse callee parts. Supports "." (Python/JS/Swift) and "::" (Go/Rust/C++)
+        lang = file_languages.get(source_file, "python")
         callee_clean = callee_name.replace("::", ".")
         parts = [p.strip() for p in callee_clean.split(".") if p.strip()]
         if not parts:
             return None
-            
+
         main_symbol = parts[0]
-        sub_symbol = parts[1] if len(parts) > 1 else None
         rest_of_callee = callee_clean.split(".", 1)[1] if len(parts) > 1 else ""
 
-        # 1. Local Scope Check
-        # Check if the symbol is defined locally in the caller's file
-        local_target = f"{source_file}::{main_symbol}"
-        if local_target in node_ids:
-            if rest_of_callee:
-                sub_target = f"{local_target}.{rest_of_callee}"
-                if sub_target in node_ids:
-                    return sub_target
-                # Try just the class member
-                sub_target = f"{local_target}.{parts[-1]}"
-                if sub_target in node_ids:
-                    return sub_target
-            return local_target
+        # 1. Builtins / Stdlib Check
+        if main_symbol in BUILTIN_FUNCTIONS.get(lang, set()):
+            return None
 
-        # 2. Self/Cls Check
-        # Handle self, this, and cls method calls by resolving to the caller's parent class
+        scope = scopes.get(source_file)
+        if not scope:
+            return None
+
+        # 2. Local lexical scope check
+        # self / this / cls references
         if main_symbol in ("self", "this", "cls"):
             if "." in caller_id:
-                # caller is a method: e.g. "file_a.py::MyClass.run" -> parent "file_a.py::MyClass"
                 parent_class_id = caller_id.rsplit(".", 1)[0]
                 if rest_of_callee:
-                    member_target = f"{parent_class_id}.{rest_of_callee}"
-                    if member_target in node_ids:
-                        return member_target
-                    # Try just the last component
-                    member_target = f"{parent_class_id}.{parts[-1]}"
-                    if member_target in node_ids:
-                        return member_target
-
-        # Helper to extract the last component of a raw import target
-        # e.g., "codegraph/parser" -> "parser", "codegraph.parser" -> "parser"
-        def get_last_component(raw_target: str) -> str:
-            cleaned = raw_target.replace("::", ".").replace("/", ".")
-            subparts = [p.strip() for p in cleaned.split(".") if p.strip()]
-            return subparts[-1] if subparts else ""
-
-        # Fetch all files imported by this file
-        imported_files = []
-        for u, v, edata in G.edges(data=True):
-            if u == source_file and edata.get("relation") == "imports":
-                imported_files.append((v, edata))
-
-        # 3. Import-Guided Module-Qualified Check
-        # If calling module.Function() (e.g. parser.parse_file), check if the module matches
-        # any imported file's name/stem or its raw import target's last component.
-        if rest_of_callee:
-            for imp_file, edata in imported_files:
-                raw_target = edata.get("raw_target", "")
-                last_comp = get_last_component(raw_target)
-                stem = Path(imp_file).stem
-                
-                # Match check (case-insensitive)
-                matched = False
-                if (last_comp.lower() == main_symbol.lower() or 
-                    stem.lower() == main_symbol.lower()):
-                    matched = True
-                elif stem.lower() in ("__init__", "index", "main"):
-                    parent_name = Path(imp_file).parent.name
-                    if parent_name.lower() == main_symbol.lower():
-                        matched = True
-                        
-                if matched:
-                    # Look for the rest of callee directly in the imported file
-                    target_candidate = f"{imp_file}::{rest_of_callee}"
+                    target_candidate = f"{parent_class_id}.{rest_of_callee}"
                     if target_candidate in node_ids:
                         return target_candidate
-                    
-                    # Fallback to the last symbol as a top-level node in the imported file
-                    last_symbol = parts[-1]
-                    target_candidate = f"{imp_file}::{last_symbol}"
+                    target_candidate = f"{parent_class_id}.{parts[-1]}"
                     if target_candidate in node_ids:
                         return target_candidate
-                    
-                    # Also look for any node in the imported file ending with .last_symbol (like class methods)
-                    for nid in node_ids:
-                        if G.nodes[nid].get("source_file") == imp_file and nid.endswith(f".{last_symbol}"):
-                            return nid
 
-        # 4. Import-Guided Symbol Check
-        # If calling Function() directly, check if Function is defined in any imported file
-        for imp_file, _ in imported_files:
-            target_candidate = f"{imp_file}::{main_symbol}"
+        # Inside current class context
+        if "." in caller_id:
+            parent_class_id = caller_id.rsplit(".", 1)[0]
+            target_candidate = f"{parent_class_id}.{main_symbol}"
             if target_candidate in node_ids:
                 if rest_of_callee:
                     sub_target = f"{target_candidate}.{rest_of_callee}"
                     if sub_target in node_ids:
                         return sub_target
-                    sub_target = f"{target_candidate}.{parts[-1]}"
+                return target_candidate
+
+        # File-level scope check
+        file_candidate = f"{source_file}::{main_symbol}"
+        if file_candidate in node_ids:
+            if rest_of_callee:
+                sub_target = f"{file_candidate}.{rest_of_callee}"
+                if sub_target in node_ids:
+                    return sub_target
+            return file_candidate
+
+        # 3. Package scope check (for Go, Swift sibling files)
+        if lang in ("go", "swift"):
+            caller_dir = Path(source_file).parent
+            for nid in node_ids:
+                ndata = G.nodes[nid]
+                if ndata.get("type") == "file":
+                    continue
+                node_file = ndata.get("source_file", "")
+                if node_file and Path(node_file).parent == caller_dir:
+                    if nid.endswith(f"::{main_symbol}"):
+                        if rest_of_callee:
+                            sub_target = f"{nid}.{rest_of_callee}"
+                            if sub_target in node_ids:
+                                return sub_target
+                        return nid
+
+        # 4. Explicit imports and aliases check
+        if main_symbol in scope.imported_symbols:
+            target_file_id, original_name = scope.imported_symbols[main_symbol]
+            if original_name == "*" or original_name == Path(target_file_id).stem:
+                if rest_of_callee:
+                    target_candidate = f"{target_file_id}::{rest_of_callee}"
+                    if target_candidate in node_ids:
+                        return target_candidate
+                    for nid in node_ids:
+                        if G.nodes[nid].get(
+                            "source_file"
+                        ) == target_file_id and nid.endswith(f".{parts[-1]}"):
+                            return nid
+                else:
+                    target_candidate = f"{target_file_id}::{main_symbol}"
+                    if target_candidate in node_ids:
+                        return target_candidate
+                    return target_file_id
+            else:
+                target_candidate = f"{target_file_id}::{original_name}"
+                if target_candidate in node_ids:
+                    if rest_of_callee:
+                        sub_target = f"{target_candidate}.{rest_of_callee}"
+                        if sub_target in node_ids:
+                            return sub_target
+                    return target_candidate
+                return target_candidate
+
+        # 5. Wildcard imports check
+        for target_file_id in scope.wildcard_imports:
+            target_candidate = f"{target_file_id}::{main_symbol}"
+            if target_candidate in node_ids:
+                if rest_of_callee:
+                    sub_target = f"{target_candidate}.{rest_of_callee}"
                     if sub_target in node_ids:
                         return sub_target
                 return target_candidate
 
-        # 5. Conservative Global Fallback
-        # If no local or imported match, fallback to globally unique symbol
+        # 6. Global fallback check
         search_label = parts[-1] if len(parts) > 1 else main_symbol
-        candidates = global_symbol_map.get(search_label, [])
+        candidates = []
+        for nid, ndata in G.nodes(data=True):
+            if ndata.get("label") == search_label and ndata.get("type") != "file":
+                candidates.append(nid)
+
         if len(candidates) == 1:
             return candidates[0]
         elif len(candidates) > 1:
-            # Prefer candidate in the same parent directory (same package/namespace)
             caller_parent_dir = Path(source_file).parent
-            near_candidates = [c for c in candidates if Path(G.nodes[c]["source_file"]).parent == caller_parent_dir]
+            near_candidates = [
+                c
+                for c in candidates
+                if Path(G.nodes[c]["source_file"]).parent == caller_parent_dir
+            ]
             if len(near_candidates) == 1:
                 return near_candidates[0]
 
         return None
 
-    # 3. Process edges and add them resolved to the graph
+    # Pass 2: Process and resolve edges
     for ext in extractions:
         for edge in ext.edges:
             src = edge.source
             tgt = edge.target
             rel = edge.relation
-            
-            # Skip self-loops
+
             if src == tgt:
                 continue
-
-            # We must make sure the source node exists in our graph
             if src not in node_ids:
                 continue
 
             resolved_tgt = None
-            
+
             if rel == "contains":
-                # Containment edges are already fully qualified by the parser
                 if tgt in node_ids:
                     resolved_tgt = tgt
-                    
             elif rel == "imports":
-                # Try to resolve import target (which is a raw path/module name) to a file node ID
-                source_file = G.nodes[src]["source_file"]
-                resolved_tgt = resolve_import_to_file_node(source_file, tgt)
-                
+                resolved_tgt = resolve_import_to_file_node(
+                    G.nodes[src]["source_file"], tgt
+                )
             elif rel in ("inherits", "implements"):
-                # Inherits/implements targets are class/trait labels
                 resolved_tgt = resolve_symbol(src, tgt)
-                
             elif rel == "calls":
-                # Calls targets are raw callee names
                 resolved_tgt = resolve_symbol(src, tgt)
 
-            # Add edge if resolved
             if resolved_tgt and resolved_tgt in node_ids:
                 if rel == "imports":
                     G.add_edge(src, resolved_tgt, relation=rel, raw_target=tgt)
                 else:
                     G.add_edge(src, resolved_tgt, relation=rel)
-                
+
     return G

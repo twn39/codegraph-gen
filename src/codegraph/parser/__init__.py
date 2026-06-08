@@ -4,15 +4,19 @@ from codegraph.parser.javascript import JavaScriptParser
 from codegraph.parser.go import GoParser
 from codegraph.parser.rust import RustParser
 from codegraph.parser.swift import SwiftParser
+from codegraph.parser.cpp import CParser, CppParser
 
 PARSERS: dict[str, type[BaseParser]] = {
     "python": PythonParser,
     "javascript": JavaScriptParser,
-    "typescript": JavaScriptParser, # uses same tree-sitter parser
+    "typescript": JavaScriptParser,  # uses same tree-sitter parser
     "go": GoParser,
     "rust": RustParser,
     "swift": SwiftParser,
+    "c": CParser,
+    "cpp": CppParser,
 }
+
 
 def get_parser(language: str) -> BaseParser:
     """Returns an instance of the parser for the given language."""

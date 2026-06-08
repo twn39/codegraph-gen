@@ -1,122 +1,153 @@
-import logging
 from pathlib import Path
 import click
 from rich.console import Console
 from rich.table import Table
-from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, MofNCompleteColumn
+from rich.progress import (
+    Progress,
+    SpinnerColumn,
+    TextColumn,
+    BarColumn,
+    MofNCompleteColumn,
+)
 
 from codegraph.config import CodegraphConfig, DEFAULT_EXCLUSIONS
-from codegraph.detect import discover_files
-from codegraph.parser import get_parser
-from codegraph.builder import build_graph
-from codegraph.cluster import detect_components
-from codegraph.exporter import to_markdown_vault
 
 console = Console()
+
 
 @click.group()
 def cli():
     """codegraph - Build a Markdown knowledge graph of your codebase for AI analysis."""
     pass
 
+
 @cli.command()
-@click.argument("src_dir", type=click.Path(exists=True, file_okay=False, path_type=Path), default=".")
-@click.option("--output", "-o", type=click.Path(path_type=Path), default=Path(".codegraph"),
-              help="Directory where the Markdown vault will be written.")
-@click.option("--exclude", "-e", multiple=True, type=str,
-              help="Additional folder names/patterns to exclude from scanning.")
+@click.argument(
+    "src_dir",
+    type=click.Path(exists=True, file_okay=False, path_type=Path),
+    default=".",
+)
+@click.option(
+    "--output",
+    "-o",
+    type=click.Path(path_type=Path),
+    default=Path(".codegraph"),
+    help="Directory where the Markdown vault will be written.",
+)
+@click.option(
+    "--exclude",
+    "-e",
+    multiple=True,
+    type=str,
+    help="Additional folder names/patterns to exclude from scanning.",
+)
 def build(src_dir: Path, output: Path, exclude: list[str]):
     """Parses the codebase in SRC_DIR and exports the Markdown graph vault."""
     console.print("[bold blue]Starting codegraph analysis...[/bold blue]")
-    
+
     # 1. Prepare configuration
     exclusions = set(DEFAULT_EXCLUSIONS)
     if exclude:
         exclusions.update(exclude)
-        
+
     config = CodegraphConfig(
-        workspace_dir=src_dir.resolve(),
-        output_dir=output,
-        exclusions=exclusions
+        workspace_dir=src_dir.resolve(), output_dir=output, exclusions=exclusions
     )
-    
-    # 2. Discover files
-    console.print(f"Scanning [cyan]{config.workspace_dir}[/cyan] for source files...")
-    files = discover_files(config)
-    
-    if not files:
-        console.print("[bold yellow]No supported source files found in the workspace.[/bold yellow]")
-        return
-        
-    console.print(f"Found [green]{len(files)}[/green] supported files to analyze.")
-    
-    # 3. Parse files with progress bar
-    extractions = []
+
+    from codegraph.engine import CodegraphEngine, PipelineStage
+
+    engine = CodegraphEngine(config)
+
+    # Run pipeline with click progress bar
     with Progress(
         SpinnerColumn(),
         TextColumn("[progress.description]{task.description}"),
         BarColumn(),
         MofNCompleteColumn(),
-        console=console
+        console=console,
     ) as progress:
-        task = progress.add_task("Parsing AST files", total=len(files))
-        
-        for file_path, lang in files:
-            progress.update(task, description=f"Parsing {file_path.name}")
-            try:
-                parser = get_parser(lang)
-                result = parser.parse_file(file_path, config.workspace_dir)
-                extractions.append(result)
-            except Exception as e:
-                console.print(f"[bold red]Error parsing {file_path}: {e}[/bold red]")
-            progress.advance(task)
+        task = progress.add_task("Initializing...", total=None)
 
-    # 4. Build graph
-    console.print("Assembling and resolving semantic call-graph...")
-    G = build_graph(extractions, config.workspace_dir)
-    
-    files_count = sum(1 for _, d in G.nodes(data=True) if d.get("type") == "file")
+        def progress_callback(stage: PipelineStage, current_item, idx, total):
+            if stage == PipelineStage.DISCOVERING:
+                progress.update(task, description="Discovering source files...")
+            elif stage == PipelineStage.PARSING:
+                if total > 0:
+                    progress.update(task, total=total)
+                progress.update(
+                    task,
+                    description=f"Parsing {current_item.name if current_item else ''}",
+                    completed=idx,
+                )
+            elif stage == PipelineStage.BUILDING:
+                progress.update(task, description="Building reference graph...")
+            elif stage == PipelineStage.CLUSTERING:
+                progress.update(task, description="Clustering components...")
+            elif stage == PipelineStage.ANALYZING:
+                progress.update(task, description="Analyzing graph metrics...")
+            elif stage == PipelineStage.RENDERING:
+                progress.update(task, description="Rendering Markdown vault...")
+            elif stage == PipelineStage.WRITING:
+                progress.update(task, description="Writing files to disk...")
+            elif stage == PipelineStage.COMPLETED:
+                progress.update(task, description="Done!")
+
+        result = engine.run_pipeline(progress_callback=progress_callback)
+
+    G = result.graph
+    if G.number_of_nodes() == 0:
+        console.print("[bold yellow]Completed build, but graph is empty.[/bold yellow]")
+        return
+
+    files_count = len(result.files)
     symbols_count = G.number_of_nodes() - files_count
-    
-    console.print(f"Assembled graph with [green]{G.number_of_nodes()}[/green] nodes and [green]{G.number_of_edges()}[/green] edges.")
+
+    console.print(f"Found [green]{files_count}[/green] supported files to analyze.")
+    console.print(
+        f"Assembled graph with [green]{G.number_of_nodes()}[/green] nodes and [green]{G.number_of_edges()}[/green] edges."
+    )
     console.print(f"  - Files: {files_count}")
     console.print(f"  - Symbols (Classes/Functions/Methods): {symbols_count}")
 
-    # 5. Component clustering
-    console.print("Clustering code structure into logical components...")
-    components, cohesion_scores, component_names = detect_components(G)
-    
-    # 6. Export to Markdown
-    abs_out = config.absolute_output_dir
-    console.print(f"Writing Markdown storage to [cyan]{abs_out}[/cyan]...")
-    to_markdown_vault(G, components, cohesion_scores, component_names, abs_out)
-    
-    console.print("[bold green]Success! Codebase knowledge graph built successfully.[/bold green]")
-    
-    # Display components summary table
+    console.print(
+        "[bold green]Success! Codebase knowledge graph built successfully.[/bold green]"
+    )
+
     table = Table(title="Logical Components Summary")
     table.add_column("Component Name", style="cyan", no_wrap=True)
     table.add_column("Cohesion (Density)", style="magenta")
     table.add_column("Size (Nodes)", style="green")
-    
-    for cid, members in components.items():
+
+    for cid, members in result.components.items():
         table.add_row(
-            component_names[cid],
-            str(cohesion_scores[cid]),
-            str(len(members))
+            result.component_names[cid],
+            str(result.cohesion_scores[cid]),
+            str(len(members)),
         )
-        
+
     console.print(table)
-    console.print(f"\nView the main graph entrypoint at: [bold underline]{abs_out}/README.md[/bold underline]")
-    console.print(f"💡 [bold yellow]AI Insight Tip:[/bold yellow] Ask your AI Agent (e.g. Antigravity, Claude Code, Codex) to read [bold]{abs_out}/AGENT_PROMPT.md[/bold] and write the architectural report directly to [bold]{abs_out}/README.md[/bold].\n")
+    console.print(
+        f"\nView the main graph entrypoint at: [bold underline]{config.absolute_output_dir}/README.md[/bold underline]"
+    )
+    console.print(
+        f"💡 [bold yellow]AI Insight Tip:[/bold yellow] Ask your AI Agent (e.g. Antigravity, Claude Code, Codex) to read [bold]{config.absolute_output_dir}/AGENT_PROMPT.md[/bold] and write the architectural report directly to [bold]{config.absolute_output_dir}/README.md[/bold].\n"
+    )
+
 
 @cli.command()
-@click.option("--platform", "-p", default="codex", type=click.Choice(["codex", "antigravity"]),
-              help="The AI agent platform to integrate with.")
+@click.option(
+    "--platform",
+    "-p",
+    default="codex",
+    type=click.Choice(["codex", "antigravity"]),
+    help="The AI agent platform to integrate with.",
+)
 def install(platform: str):
     """Installs the codegraph slash command into your AI Agent's global config."""
-    console.print(f"[bold blue]Installing codegraph integration for {platform}...[/bold blue]")
-    
+    console.print(
+        f"[bold blue]Installing codegraph integration for {platform}...[/bold blue]"
+    )
+
     # 1. Resolve skills directory based on target platform
     if platform == "codex":
         skills_dir = Path.home() / ".codex" / "skills" / "codegraph"
@@ -124,7 +155,7 @@ def install(platform: str):
         skills_dir = Path.home() / ".gemini" / "config" / "skills" / "codegraph"
     else:
         skills_dir = Path.home() / ".codex" / "skills" / "codegraph"
-    
+
     # 2. Skill file content
     skill_content = """---
 name: codegraph
@@ -196,23 +227,30 @@ Finally, reply to the user in Chinese, summarizing:
   - The agent guidelines: `[AGENTS.md](file:///<absolute_path_to_vault>/AGENTS.md)`
   - The detailed components folder: `[components/](file:///<absolute_path_to_vault>/components/)`
 """
-    
+
     try:
         skills_dir.mkdir(parents=True, exist_ok=True)
         skill_file = skills_dir / "SKILL.md"
         skill_file.write_text(skill_content, encoding="utf-8")
-        console.print(f"[bold green]Successfully installed /codegraph slash command to: [underline]{skill_file}[/underline][/bold green]")
+        console.print(
+            f"[bold green]Successfully installed /codegraph slash command to: [underline]{skill_file}[/underline][/bold green]"
+        )
     except Exception as e:
         console.print(f"[bold red]Failed to write skill configuration: {e}[/bold red]")
+
 
 @cli.command()
 def info():
     """Prints tool info and supported languages."""
     console.print("[bold]codegraph v0.1.0[/bold]")
-    console.print("Supported languages: Python, JavaScript, TypeScript, Go, Rust, Swift")
+    console.print(
+        "Supported languages: Python, JavaScript, TypeScript, Go, Rust, Swift"
+    )
+
 
 def main():
     cli()
+
 
 if __name__ == "__main__":
     main()

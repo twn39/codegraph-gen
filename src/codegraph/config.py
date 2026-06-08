@@ -23,17 +23,21 @@ LANGUAGE_EXTENSIONS = {
     "go": {".go"},
     "rust": {".rs"},
     "swift": {".swift"},
+    "c": {".c", ".h"},
+    "cpp": {".cpp", ".cc", ".cxx", ".hpp", ".hxx"},
 }
 
 ALL_EXTENSIONS = {ext for exts in LANGUAGE_EXTENSIONS.values() for ext in exts}
 
+
 class CodegraphConfig(BaseModel):
     """Configuration class for codegraph parsing and exporting."""
+
     workspace_dir: Path
     output_dir: Path = Field(default_factory=lambda: Path(".codegraph"))
     exclusions: set[str] = Field(default_factory=lambda: DEFAULT_EXCLUSIONS)
     languages: set[str] = Field(default_factory=lambda: set(LANGUAGE_EXTENSIONS.keys()))
-    
+
     @property
     def absolute_output_dir(self) -> Path:
         if self.output_dir.is_absolute():

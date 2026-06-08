@@ -4,17 +4,18 @@ from codegraph.config import CodegraphConfig, LANGUAGE_EXTENSIONS
 
 logger = logging.getLogger(__name__)
 
+
 def discover_files(config: CodegraphConfig) -> list[tuple[Path, str]]:
     """
     Recursively discovers source files in the workspace directory.
     Filters by allowed languages and ignores files/directories in exclusions.
-    
+
     Returns:
         List of tuples: (absolute_file_path, language_name)
     """
     found_files = []
     workspace = config.workspace_dir.resolve()
-    
+
     # Map extension -> language
     ext_to_lang = {}
     for lang in config.languages:
@@ -29,7 +30,7 @@ def discover_files(config: CodegraphConfig) -> list[tuple[Path, str]]:
         except ValueError:
             # Not under workspace
             return True
-            
+
         for part in rel_parts:
             if part in config.exclusions:
                 return True

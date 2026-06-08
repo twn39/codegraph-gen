@@ -1,8 +1,8 @@
 import logging
 import networkx as nx
-from pathlib import Path
 
 logger = logging.getLogger(__name__)
+
 
 def build_agent_prompt(
     G: nx.DiGraph,
@@ -11,7 +11,7 @@ def build_agent_prompt(
     component_names: dict[int, str],
     god_nodes: list[dict],
     cycles: list[list[str]],
-    mermaid_graph: str
+    mermaid_graph: str,
 ) -> str:
     """
     Constructs a detailed architectural prompt designed for external AI agents
@@ -19,22 +19,26 @@ def build_agent_prompt(
     architectural analysis.
     """
     logger.info("Generating agent analysis prompt based on graph structure...")
-    
+
     # Format metadata lists
     files_count = sum(1 for _, d in G.nodes(data=True) if d.get("type") == "file")
     symbols_count = G.number_of_nodes() - files_count
-    
+
     comp_list = []
     for cid, members in components.items():
-        comp_list.append(f"- {component_names[cid]}: cohesion={cohesion_scores[cid]:.4f}, members_count={len(members)}")
+        comp_list.append(
+            f"- {component_names[cid]}: cohesion={cohesion_scores[cid]:.4f}, members_count={len(members)}"
+        )
     comp_str = "\n".join(comp_list)
-    
+
     god_list = []
     for node in god_nodes:
         sf = G.nodes[node["id"]].get("source_file", "")
-        god_list.append(f"- {node['label']} ({node['type']}): degree={node['degree']}, file={sf}")
+        god_list.append(
+            f"- {node['label']} ({node['type']}): degree={node['degree']}, file={sf}"
+        )
     god_str = "\n".join(god_list)
-    
+
     cycle_list = []
     for c in cycles:
         cycle_list.append(" -> ".join(c + [c[0]]))
