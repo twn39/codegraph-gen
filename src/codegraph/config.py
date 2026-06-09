@@ -13,7 +13,25 @@ DEFAULT_EXCLUSIONS = {
     "__pycache__",
     ".pytest_cache",
     ".codegraph",
+    ".idea",
+    ".vscode",
+    "target",
+    "out",
+    "bin",
+    "obj",
+    "vendor",
+    "Pods",
+    "Carthage",
+    "DerivedData",
+    "build_output",
+    ".next",
+    ".nuxt",
+    ".cache",
+    "build_mac",
+    "build_ios",
+    "build_ios_sim",
 }
+
 
 # Mapping of supported languages to file extensions
 LANGUAGE_EXTENSIONS = {

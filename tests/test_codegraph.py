@@ -28,9 +28,23 @@ def test_detect():
         (workspace / "src" / "main.py").write_text("print('hello')")
         (workspace / "src" / "test.ts").write_text("const a = 1;")
 
-        # Excluded directory
+        # Excluded directory (.venv)
         (workspace / ".venv").mkdir()
         (workspace / ".venv" / "lib.py").write_text("print('ignore')")
+
+        # Excluded case-insensitive directory (PODS -> Pods)
+        (workspace / "PODS").mkdir()
+        (workspace / "PODS" / "dep.py").write_text("print('ignore')")
+
+        # Newly added exclusions: DerivedData, target, build_ios
+        (workspace / "DerivedData").mkdir()
+        (workspace / "DerivedData" / "x.py").write_text("print('ignore')")
+
+        (workspace / "target").mkdir()
+        (workspace / "target" / "y.py").write_text("print('ignore')")
+
+        (workspace / "build_ios").mkdir()
+        (workspace / "build_ios" / "z.py").write_text("print('ignore')")
 
         # Unsupported file extension
         (workspace / "src" / "doc.txt").write_text("some text")
@@ -42,7 +56,12 @@ def test_detect():
         assert workspace / "src" / "main.py" in paths
         assert workspace / "src" / "test.ts" in paths
         assert workspace / ".venv" / "lib.py" not in paths
+        assert workspace / "PODS" / "dep.py" not in paths
+        assert workspace / "DerivedData" / "x.py" not in paths
+        assert workspace / "target" / "y.py" not in paths
+        assert workspace / "build_ios" / "z.py" not in paths
         assert workspace / "src" / "doc.txt" not in paths
+
 
 
 def test_python_parser():

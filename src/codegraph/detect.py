@@ -23,8 +23,11 @@ def discover_files(config: CodegraphConfig) -> list[tuple[Path, str]]:
             for ext in LANGUAGE_EXTENSIONS[lang]:
                 ext_to_lang[ext] = lang
 
+    # Normalize exclusions to lowercase for case-insensitive matching
+    exclusions_lower = {exc.lower() for exc in config.exclusions}
+
     def is_ignored(path: Path) -> bool:
-        # Check if any part of the path is in config.exclusions
+        # Check if any part of the path is in exclusions_lower
         try:
             rel_parts = path.relative_to(workspace).parts
         except ValueError:
@@ -32,9 +35,10 @@ def discover_files(config: CodegraphConfig) -> list[tuple[Path, str]]:
             return True
 
         for part in rel_parts:
-            if part in config.exclusions:
+            if part.lower() in exclusions_lower:
                 return True
         return False
+
 
     def scan_dir(directory: Path):
         try:
