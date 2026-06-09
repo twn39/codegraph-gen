@@ -177,7 +177,9 @@ Build a codebase knowledge graph using `codegraph` for any folder, cluster symbo
 
 ## What You Must Do When Invoked
 
-If the user invoked `/codegraph` with no path, default to `.` (current directory). Do not ask the user for a path.
+If the user invoked `/codegraph` with no path, do not ask the user for a path. Instead of scanning the entire project root directory `.` (which may include non-essential scripts, docs, or huge subfolders), you MUST prioritize targeting the primary source directory (e.g. `src/`, `lib/`, `app/`) and test directory (e.g. `tests/`, `test/`).
+- If specific source or test folders are found, run the build targeting those folders, or build the root `.` but exclude other non-code/non-test directories (e.g., `docs/`, `scripts/`, `examples/`) using the `--exclude` flag to keep the graph focused on code and tests.
+- Otherwise, default to `.` (current directory).
 
 Follow these steps in order. Do not skip any steps.
 
