@@ -329,10 +329,10 @@ class MarkdownRenderer:
         has_relations = False
         for src_cid, targets in analysis.inter_comp_deps.items():
             src_name = component_names[src_cid]
-            src_id = re.sub(r"[^a-zA-Z0-9_]", "_", src_name)
+            src_id = f"comp_{src_cid}"
             for tgt_cid, weight in targets.items():
                 tgt_name = component_names[tgt_cid]
-                tgt_id = re.sub(r"[^a-zA-Z0-9_]", "_", tgt_name)
+                tgt_id = f"comp_{tgt_cid}"
                 mermaid_lines.append(
                     f'  {src_id}["{src_name}"] -->|{weight}| {tgt_id}["{tgt_name}"]'
                 )
@@ -340,7 +340,7 @@ class MarkdownRenderer:
 
         if not has_relations:
             for cid, name in component_names.items():
-                cid_id = re.sub(r"[^a-zA-Z0-9_]", "_", name)
+                cid_id = f"comp_{cid}"
                 mermaid_lines.append(f'  {cid_id}["{name}"]')
 
         mermaid_graph = "\n".join(mermaid_lines)
@@ -448,10 +448,10 @@ class MarkdownRenderer:
         has_relations = False
         for src_cid, targets in analysis.inter_comp_deps.items():
             src_name = component_names[src_cid]
-            src_id = re.sub(r"[^a-zA-Z0-9_]", "_", src_name)
+            src_id = f"comp_{src_cid}"
             for tgt_cid, weight in targets.items():
                 tgt_name = component_names[tgt_cid]
-                tgt_id = re.sub(r"[^a-zA-Z0-9_]", "_", tgt_name)
+                tgt_id = f"comp_{tgt_cid}"
                 mermaid_lines.append(
                     f'  {src_id}["{src_name}"] -->|{weight}| {tgt_id}["{tgt_name}"]'
                 )
@@ -459,7 +459,7 @@ class MarkdownRenderer:
 
         if not has_relations:
             for cid, name in component_names.items():
-                cid_id = re.sub(r"[^a-zA-Z0-9_]", "_", name)
+                cid_id = f"comp_{cid}"
                 mermaid_lines.append(f'  {cid_id}["{name}"]')
         mermaid_graph = "\n".join(mermaid_lines)
 

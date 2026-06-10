@@ -51,7 +51,7 @@ def build(src_dir: Path, output: Path, exclude: list[str]):
         exclusions.update(exclude)
 
     config = CodegraphConfig(
-        workspace_dir=src_dir.resolve(), output_dir=output, exclusions=exclusions
+        workspace_dir=src_dir.resolve(), output_dir=output.resolve(), exclusions=exclusions
     )
 
     from codegraph.engine import CodegraphEngine, PipelineStage
