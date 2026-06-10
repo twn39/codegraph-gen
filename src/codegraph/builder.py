@@ -473,6 +473,17 @@ def build_graph(extractions: list[ExtractionResult], workspace_dir: Path) -> nx.
                 return target_candidate
 
         # 6. Global fallback check
+        if main_symbol in {
+            "os", "sys", "json", "time", "math", "re", "pathlib", "logging",
+            "subprocess", "shutil", "hashlib", "urllib", "socket", "threading",
+            "multiprocessing", "typing", "collections", "itertools", "functools",
+            "logger", "log", "console", "self", "this", "cls", "pytest", "unittest",
+            "fmt", "sync", "context", "strings", "bytes", "errors", "net", "http",
+            "process", "document", "window", "global", "fs", "path", "std", "core",
+            "env", "Logger"
+        } or any(p in {"logger", "log", "logging", "console"} for p in parts):
+            return None
+
         search_label = parts[-1] if len(parts) > 1 else main_symbol
         candidates = []
         for nid, ndata in G.nodes(data=True):
