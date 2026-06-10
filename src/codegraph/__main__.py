@@ -41,7 +41,31 @@ def cli():
     type=str,
     help="Additional folder names/patterns to exclude from scanning.",
 )
-def build(src_dir: Path, output: Path, exclude: list[str]):
+@click.option(
+    "--parallel/--no-parallel",
+    default=True,
+    help="Enable/disable parallel parsing (using multiprocessing).",
+)
+@click.option(
+    "--workers",
+    "-w",
+    type=int,
+    default=None,
+    help="Number of worker processes to use for parallel parsing.",
+)
+@click.option(
+    "--cache/--no-cache",
+    default=True,
+    help="Enable/disable incremental parsing cache.",
+)
+def build(
+    src_dir: Path,
+    output: Path,
+    exclude: list[str],
+    parallel: bool,
+    workers: int | None,
+    cache: bool,
+):
     """Parses the codebase in SRC_DIR and exports the Markdown graph vault."""
     console.print("[bold blue]Starting codegraph analysis...[/bold blue]")
 
@@ -50,8 +74,21 @@ def build(src_dir: Path, output: Path, exclude: list[str]):
     if exclude:
         exclusions.update(exclude)
 
+    import os
+
+    if not parallel:
+        max_workers = 1
+    elif workers is not None:
+        max_workers = workers
+    else:
+        max_workers = os.cpu_count() or 4
+
     config = CodegraphConfig(
-        workspace_dir=src_dir.resolve(), output_dir=output.resolve(), exclusions=exclusions
+        workspace_dir=src_dir.resolve(),
+        output_dir=output.resolve(),
+        exclusions=exclusions,
+        max_workers=max_workers,
+        use_cache=cache,
     )
 
     from codegraph.engine import CodegraphEngine, PipelineStage

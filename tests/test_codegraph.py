@@ -67,7 +67,6 @@ def test_detect():
         assert workspace / "src" / "doc.txt" not in paths
 
 
-
 def test_python_parser():
     parser = PythonParser()
     code = b"""
@@ -271,7 +270,6 @@ def test_clustering_and_exporter():
         # Verify agent files contents
         agents_txt = (output.parent / "AGENTS.md").read_text()
         assert "Guidelines for AI Agents" in agents_txt
-
 
         prompt_txt = (output / "AGENT_PROMPT.md").read_text()
         assert "Codebase Architecture Analysis Prompt" in prompt_txt
@@ -545,3 +543,99 @@ int main() {
         target_nid = "my_class.cpp::MyNamespace.MyClass.hello"
 
         assert G.has_edge(caller_nid, target_nid)
+
+
+def test_incremental_caching_and_parallel_pipeline():
+    import json
+    from codegraph.engine import CodegraphEngine
+    from codegraph.config import CodegraphConfig
+    import time
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        workspace = Path(tmpdir).resolve()
+
+        # 1. Create two test python files
+        file_a = workspace / "file_a.py"
+        file_a.write_text("def func_a():\n    print('A')\n")
+
+        file_b = workspace / "file_b.py"
+        file_b.write_text("def func_b():\n    print('B')\n")
+
+        # Configure to use parallel parsing with 2 workers and caching enabled
+        config = CodegraphConfig(workspace_dir=workspace, max_workers=2, use_cache=True)
+        engine = CodegraphEngine(config)
+
+        # --- First Run (Cold Run: Cache Miss) ---
+        res1 = engine.run_pipeline()
+        cache_file = config.absolute_output_dir / "cache.json"
+
+        # Assert cache was written and has 2 entries
+        assert cache_file.exists()
+        with open(cache_file, "r", encoding="utf-8") as f:
+            cache_data = json.load(f)
+        assert len(cache_data) == 2
+        assert "file_a.py" in cache_data
+        assert "file_b.py" in cache_data
+
+        # Check extraction results
+        assert len(res1.files) == 2
+        assert any(
+            n.get("label") == "func_a"
+            for nid, n in res1.graph.nodes(data=True)
+            if n.get("type") == "function"
+        )
+        assert any(
+            n.get("label") == "func_b"
+            for nid, n in res1.graph.nodes(data=True)
+            if n.get("type") == "function"
+        )
+
+        # --- Second Run (Hot Run: Cache Hit, No Changes) ---
+        # Run again. It should read from cache and skip parsing.
+        res2 = engine.run_pipeline()
+        # Verify result is the same
+        assert len(res2.files) == 2
+        assert any(
+            n.get("label") == "func_a"
+            for nid, n in res2.graph.nodes(data=True)
+            if n.get("type") == "function"
+        )
+        assert any(
+            n.get("label") == "func_b"
+            for nid, n in res2.graph.nodes(data=True)
+            if n.get("type") == "function"
+        )
+
+        # --- Third Run (Incremental Run: One file modified) ---
+        # Modify file_a.py. Since mtime resolution might be 1s on some systems, sleep a bit or modify content.
+        # But wait, changing the content changes the size and MD5 hash, which is checked in our cache filter!
+        # So it will trigger a cache miss for file_a.py, but file_b.py will remain a cache hit.
+        time.sleep(0.01)  # small sleep
+        file_a.write_text("def func_a_modified():\n    print('A modified')\n")
+
+        res3 = engine.run_pipeline()
+        assert len(res3.files) == 2
+        # Verify func_a_modified is present
+        assert any(
+            n.get("label") == "func_a_modified"
+            for nid, n in res3.graph.nodes(data=True)
+            if n.get("type") == "function"
+        )
+        # Verify func_a is NOT present
+        assert not any(
+            n.get("label") == "func_a"
+            for nid, n in res3.graph.nodes(data=True)
+            if n.get("type") == "function"
+        )
+        # Verify func_b is still present (from cache)
+        assert any(
+            n.get("label") == "func_b"
+            for nid, n in res3.graph.nodes(data=True)
+            if n.get("type") == "function"
+        )
+
+        # Verify updated cache file
+        with open(cache_file, "r", encoding="utf-8") as f:
+            updated_cache = json.load(f)
+        assert len(updated_cache) == 2
+        assert "func_a_modified" in str(updated_cache["file_a.py"])

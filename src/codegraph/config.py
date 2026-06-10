@@ -1,5 +1,7 @@
+import os
 from pathlib import Path
 from pydantic import BaseModel, Field
+from codegraph.parser.base import ExtractionResult
 
 # Default exclusions for files and directories we want to ignore
 DEFAULT_EXCLUSIONS = {
@@ -49,6 +51,13 @@ LANGUAGE_EXTENSIONS = {
 ALL_EXTENSIONS = {ext for exts in LANGUAGE_EXTENSIONS.values() for ext in exts}
 
 
+class CacheEntry(BaseModel):
+    mtime: float
+    size: int
+    hash: str
+    result: ExtractionResult
+
+
 class CodegraphConfig(BaseModel):
     """Configuration class for codegraph parsing and exporting."""
 
@@ -56,6 +65,8 @@ class CodegraphConfig(BaseModel):
     output_dir: Path = Field(default_factory=lambda: Path(".codegraph"))
     exclusions: set[str] = Field(default_factory=lambda: DEFAULT_EXCLUSIONS)
     languages: set[str] = Field(default_factory=lambda: set(LANGUAGE_EXTENSIONS.keys()))
+    max_workers: int = Field(default_factory=lambda: os.cpu_count() or 4)
+    use_cache: bool = Field(default=True)
 
     @property
     def absolute_output_dir(self) -> Path:
