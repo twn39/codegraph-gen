@@ -204,6 +204,37 @@ BUILTIN_FUNCTIONS: dict[str, set[str]] = {
 }
 
 
+# Common builtin/standard library method names to avoid incorrect resolution during global fallback
+COMMON_BUILTIN_METHODS: set[str] = {
+    "append",
+    "decode",
+    "encode",
+    "insert",
+    "remove",
+    "contains",
+    "push",
+    "pop",
+    "split",
+    "join",
+    "map",
+    "filter",
+    "reduce",
+    "forEach",
+    "sorted",
+    "count",
+    "length",
+    "size",
+    "isEmpty",
+    "resume",
+    "cancel",
+    "suspend",
+    "start",
+    "stop",
+    "send",
+    "receive",
+}
+
+
 class FileSymbolScope:
     def __init__(self, file_path: str, language: str):
         self.file_path = file_path
@@ -291,6 +322,7 @@ def build_graph(extractions: list[ExtractionResult], workspace_dir: Path) -> nx.
                 if (
                     nid.replace("\\", "/").endswith(target_path_part)
                     or nid.replace("\\", "/").endswith(target_path_part + ".py")
+                    or nid.replace("\\", "/").endswith(target_path_part + "/__init__.py")
                     or nid.replace("\\", "/").endswith(target_path_part + ".go")
                     or nid.replace("\\", "/").endswith(target_path_part + ".rs")
                 ):
@@ -384,6 +416,59 @@ def build_graph(extractions: list[ExtractionResult], workspace_dir: Path) -> nx.
         scope = scopes.get(source_file)
         if not scope:
             return None
+
+        # Local Scope Type Binding resolution
+        local_bindings = caller_data.get("local_bindings", {})
+        if len(parts) > 1 and main_symbol in local_bindings:
+            receiver_type = local_bindings[main_symbol]
+            resolved_class_id = None
+            
+            # Check if it's declared in the same file
+            file_cand = f"{source_file}::{receiver_type}"
+            if file_cand in node_ids:
+                resolved_class_id = file_cand
+            
+            # Check explicit imports
+            elif receiver_type in scope.imported_symbols:
+                target_file_id, original_name = scope.imported_symbols[receiver_type]
+                resolved_class_id = f"{target_file_id}::{original_name}"
+            
+            # Check package siblings (for Go/Swift)
+            elif lang in ("go", "swift"):
+                caller_dir = Path(source_file).parent
+                for nid in node_ids:
+                    ndata = G.nodes[nid]
+                    if ndata.get("type") in ("class", "struct", "interface", "enum") and ndata.get("label") == receiver_type:
+                        node_file = ndata.get("source_file", "")
+                        if node_file and Path(node_file).parent == caller_dir:
+                            resolved_class_id = nid
+                            break
+            
+            # Global fallback for class/struct name if not found in current module/scope
+            if not resolved_class_id:
+                for nid in node_ids:
+                    ndata = G.nodes[nid]
+                    if ndata.get("type") in ("class", "struct", "interface", "enum") and ndata.get("label") == receiver_type:
+                        resolved_class_id = nid
+                        break
+            
+            if resolved_class_id:
+                target_method_id = f"{resolved_class_id}.{rest_of_callee}"
+                if target_method_id in node_ids:
+                    return target_method_id
+                target_method_id = f"{resolved_class_id}.{parts[-1]}"
+                if target_method_id in node_ids:
+                    return target_method_id
+
+                # Cross-file / implementation-to-header fallback for C++ and Python binding boundaries
+                method_name = parts[-1]
+                for nid in node_ids:
+                    ndata = G.nodes[nid]
+                    if ndata.get("type") in ("method", "function") and ndata.get("label") == method_name:
+                        parent_class_part = nid.rsplit(".", 1)[0] if "." in nid else ""
+                        parent_class_name = parent_class_part.rsplit("::", 1)[-1] if "::" in parent_class_part else parent_class_part
+                        if parent_class_name == receiver_type or parent_class_name.endswith(f".{receiver_type}"):
+                            return nid
 
         # 2. Local lexical scope check
         # self / this / cls references
@@ -485,6 +570,9 @@ def build_graph(extractions: list[ExtractionResult], workspace_dir: Path) -> nx.
             return None
 
         search_label = parts[-1] if len(parts) > 1 else main_symbol
+        if len(parts) > 1 and search_label in COMMON_BUILTIN_METHODS:
+            return None
+
         candidates = []
         for nid, ndata in G.nodes(data=True):
             if ndata.get("label") == search_label and ndata.get("type") != "file":

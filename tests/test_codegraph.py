@@ -36,7 +36,7 @@ def test_detect():
         (workspace / "PODS").mkdir()
         (workspace / "PODS" / "dep.py").write_text("print('ignore')")
 
-        # Newly added exclusions: DerivedData, target, build_ios
+        # Newly added exclusions: DerivedData, target, build_ios, .build
         (workspace / "DerivedData").mkdir()
         (workspace / "DerivedData" / "x.py").write_text("print('ignore')")
 
@@ -45,6 +45,9 @@ def test_detect():
 
         (workspace / "build_ios").mkdir()
         (workspace / "build_ios" / "z.py").write_text("print('ignore')")
+
+        (workspace / ".build").mkdir()
+        (workspace / ".build" / "w.swift").write_text("print('ignore')")
 
         # Unsupported file extension
         (workspace / "src" / "doc.txt").write_text("some text")
@@ -60,6 +63,7 @@ def test_detect():
         assert workspace / "DerivedData" / "x.py" not in paths
         assert workspace / "target" / "y.py" not in paths
         assert workspace / "build_ios" / "z.py" not in paths
+        assert workspace / ".build" / "w.swift" not in paths
         assert workspace / "src" / "doc.txt" not in paths
 
 

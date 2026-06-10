@@ -135,3 +135,148 @@ func MyFunc() {}
 
         # Caller in file_a should NOT connect to MyFunc in file_c (other package)
         assert not G.has_edge("mypackage/file_a.go::Caller", "other/file_c.go::MyFunc")
+
+
+def test_common_builtin_methods_filtering():
+    with tempfile.TemporaryDirectory() as tmpdir:
+        workspace = Path(tmpdir).resolve()
+
+        # Define a user class with append/resume method in user.py
+        user = workspace / "user.py"
+        user.write_text("""
+class PacketBuffer:
+    def append(self, x):
+        pass
+    def resume(self):
+        pass
+""")
+
+        caller = workspace / "caller.py"
+        caller.write_text("""
+def run():
+    cues = []
+    cues.append(1)  # This is a builtin method call, should not connect to user.py::PacketBuffer.append
+    task.resume()   # This is a common network task method, should not connect to user.py::PacketBuffer.resume
+""")
+
+        py_parser = PythonParser()
+        res_user = py_parser.parse_file(user, workspace)
+        res_caller = py_parser.parse_file(caller, workspace)
+
+        G = build_graph([res_user, res_caller], workspace)
+
+        # The call to cues.append() should not connect to user.py::PacketBuffer.append
+        assert not G.has_edge("caller.py::run", "user.py::PacketBuffer.append")
+        # The call to task.resume() should not connect to user.py::PacketBuffer.resume
+        assert not G.has_edge("caller.py::run", "user.py::PacketBuffer.resume")
+
+
+def test_swift_local_scope_type_binding():
+    from codegraph.parser.swift import SwiftParser
+    with tempfile.TemporaryDirectory() as tmpdir:
+        workspace = Path(tmpdir).resolve()
+
+        # 1. Define class AudioDecoderActor with decode method
+        decoder_file = workspace / "AudioDecoderActor.swift"
+        decoder_file.write_text("""
+class AudioDecoderActor {
+    func decode(_ data: Data) {}
+}
+""")
+
+        # 2. Define class EdgeTTSPlayer with play method
+        player_file = workspace / "EdgeTTSPlayer.swift"
+        player_file.write_text("""
+class EdgeTTSPlayer {
+    func play() {}
+}
+""")
+
+        # 3. Define Caller with parameters and local variable bindings
+        caller_file = workspace / "Caller.swift"
+        caller_file.write_text("""
+class Caller {
+    func run(with player: EdgeTTSPlayer) {
+        let decoder = AudioDecoderActor()
+        decoder.decode(Data())
+        player.play()
+    }
+}
+""")
+
+        swift_parser = SwiftParser()
+        res_decoder = swift_parser.parse_file(decoder_file, workspace)
+        res_player = swift_parser.parse_file(player_file, workspace)
+        res_caller = swift_parser.parse_file(caller_file, workspace)
+
+        # Verify NodeSchema actually got local_bindings populated
+        caller_run_node = next((n for n in res_caller.nodes if n.label == "run"), None)
+        assert caller_run_node is not None
+        assert caller_run_node.local_bindings == {
+            "player": "EdgeTTSPlayer",
+            "decoder": "AudioDecoderActor"
+        }
+
+        # Build graph and check edges
+        G = build_graph([res_decoder, res_player, res_caller], workspace)
+
+        # Verify correct exact connections were made
+        assert G.has_edge("Caller.swift::Caller.run", "AudioDecoderActor.swift::AudioDecoderActor.decode")
+        assert G.has_edge("Caller.swift::Caller.run", "EdgeTTSPlayer.swift::EdgeTTSPlayer.play")
+
+
+def test_python_local_scope_type_binding():
+    from codegraph.parser.python import PythonParser
+    with tempfile.TemporaryDirectory() as tmpdir:
+        workspace = Path(tmpdir).resolve()
+
+        # 1. Define class HeifContext with read_from_file method
+        context_file = workspace / "context.py"
+        context_file.write_text("""
+class HeifContext:
+    def read_from_file(self, path):
+        pass
+""")
+
+        # 2. Define class HeifImage with add_plane method
+        image_file = workspace / "image.py"
+        image_file.write_text("""
+class HeifImage:
+    def add_plane(self, channel, w, h, b):
+        pass
+""")
+
+        # 3. Define Caller with parameters, with-statement and variable assignments
+        caller_file = workspace / "caller.py"
+        caller_file.write_text("""
+def run(img_param: HeifImage):
+    ctx = HeifContext()
+    ctx.read_from_file("test.heic")
+    img_param.add_plane(1, 100, 100, 8)
+    
+    with HeifContext() as ctx_mgr:
+        ctx_mgr.read_from_file("mgr.heic")
+""")
+
+        py_parser = PythonParser()
+        res_context = py_parser.parse_file(context_file, workspace)
+        res_image = py_parser.parse_file(image_file, workspace)
+        res_caller = py_parser.parse_file(caller_file, workspace)
+
+        # Verify NodeSchema actually got local_bindings populated
+        caller_run_node = next((n for n in res_caller.nodes if n.label == "run"), None)
+        assert caller_run_node is not None
+        assert caller_run_node.local_bindings == {
+            "img_param": "HeifImage",
+            "ctx": "HeifContext",
+            "ctx_mgr": "HeifContext"
+        }
+
+        # Build graph and check edges
+        G = build_graph([res_context, res_image, res_caller], workspace)
+
+        # Verify correct exact connections were made
+        assert G.has_edge("caller.py::run", "context.py::HeifContext.read_from_file")
+        assert G.has_edge("caller.py::run", "image.py::HeifImage.add_plane")
+
+

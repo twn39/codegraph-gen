@@ -189,6 +189,61 @@ class SwiftParser(BaseParser):
                         func_id = f"{rel_path}::{func_name}"
                         sym_type = "function"
 
+                    local_bindings = {}
+
+                    def extract_type_id(tc):
+                        if tc.type == "type_identifier":
+                            return source[tc.start_byte : tc.end_byte].decode("utf-8", errors="replace")
+                        for gc in tc.children:
+                            res = extract_type_id(gc)
+                            if res:
+                                return res
+                        return None
+
+                    def collect_local_bindings(n):
+                        if n.type == "property_declaration":
+                            var_name = None
+                            for child in n.children:
+                                if child.type == "pattern":
+                                    for gc in child.children:
+                                        if gc.type == "simple_identifier":
+                                            var_name = source[gc.start_byte : gc.end_byte].decode("utf-8", errors="replace")
+                            if var_name:
+                                type_name = None
+                                for child in n.children:
+                                    if child.type == "type_annotation":
+                                        type_name = extract_type_id(child)
+                                if not type_name:
+                                    for child in n.children:
+                                        if child.type == "call_expression":
+                                            for gc in child.children:
+                                                if gc.type == "simple_identifier":
+                                                    type_name = source[gc.start_byte : gc.end_byte].decode("utf-8", errors="replace")
+                                if type_name:
+                                    local_bindings[var_name] = type_name
+                        elif n.type == "parameter":
+                            identifiers = []
+                            type_name = None
+                            seen_colon = False
+                            for child in n.children:
+                                if child.type == "simple_identifier" and not seen_colon:
+                                    identifiers.append(source[child.start_byte : child.end_byte].decode("utf-8", errors="replace"))
+                                elif child.type == ":":
+                                    seen_colon = True
+                                elif seen_colon:
+                                    res = extract_type_id(child)
+                                    if res:
+                                        type_name = res
+                                        break
+                            if identifiers and type_name:
+                                var_name = identifiers[-1]
+                                local_bindings[var_name] = type_name
+
+                        for child in n.children:
+                            collect_local_bindings(child)
+
+                    collect_local_bindings(node)
+
                     result.nodes.append(
                         NodeSchema(
                             id=func_id,
@@ -199,6 +254,7 @@ class SwiftParser(BaseParser):
                             line_end=node.end_point[0] + 1,
                             signature=self._get_signature(node, source),
                             docstring=self._get_docstring(node, source),
+                            local_bindings=local_bindings,
                         )
                     )
 

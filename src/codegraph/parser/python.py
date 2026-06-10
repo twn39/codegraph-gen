@@ -166,6 +166,73 @@ class PythonParser(BaseParser):
                         func_id = f"{rel_path}::{func_name}"
                         sym_type = "function"
 
+                    local_bindings = {}
+
+                    def extract_type_from_call_or_type(type_or_call_node):
+                        if type_or_call_node.type == "identifier":
+                            return source[type_or_call_node.start_byte : type_or_call_node.end_byte].decode("utf-8", errors="replace")
+                        elif type_or_call_node.type == "attribute":
+                            attr_node = type_or_call_node.child_by_field_name("attribute")
+                            if attr_node:
+                                return source[attr_node.start_byte : attr_node.end_byte].decode("utf-8", errors="replace")
+                        elif type_or_call_node.type == "type":
+                            for child in type_or_call_node.children:
+                                res = extract_type_from_call_or_type(child)
+                                if res:
+                                    return res
+                        elif type_or_call_node.type == "call":
+                            func_node = type_or_call_node.child_by_field_name("function")
+                            if func_node:
+                                return extract_type_from_call_or_type(func_node)
+                        for child in type_or_call_node.children:
+                            res = extract_type_from_call_or_type(child)
+                            if res:
+                                return res
+                        return None
+
+                    def collect_local_bindings(n):
+                        if n.type == "typed_parameter":
+                            var_name = None
+                            for child in n.children:
+                                if child.type == "identifier":
+                                    var_name = source[child.start_byte : child.end_byte].decode("utf-8", errors="replace")
+                                    break
+                            type_node = n.child_by_field_name("type")
+                            if var_name and type_node:
+                                t_name = extract_type_from_call_or_type(type_node)
+                                if t_name:
+                                    local_bindings[var_name] = t_name
+                        elif n.type == "assignment":
+                            left = n.child_by_field_name("left") or (n.children[0] if n.children else None)
+                            right = n.child_by_field_name("right") or (n.children[2] if len(n.children) > 2 else None)
+                            if left and right and left.type == "identifier" and right.type == "call":
+                                t_name = extract_type_from_call_or_type(right)
+                                var_name = source[left.start_byte : left.end_byte].decode("utf-8", errors="replace")
+                                if t_name:
+                                    local_bindings[var_name] = t_name
+                        elif n.type == "as_pattern":
+                            call_node = None
+                            target_node = None
+                            for child in n.children:
+                                if child.type == "call":
+                                    call_node = child
+                                elif child.type == "as_pattern_target":
+                                    for sub in child.children:
+                                        if sub.type == "identifier":
+                                            target_node = sub
+                                            break
+                            if call_node and target_node:
+                                t_name = extract_type_from_call_or_type(call_node)
+                                var_name = source[target_node.start_byte : target_node.end_byte].decode("utf-8", errors="replace")
+                                if t_name:
+                                    local_bindings[var_name] = t_name
+
+                        for child in n.children:
+                            if child.type != "function_definition":
+                                collect_local_bindings(child)
+
+                    collect_local_bindings(node)
+
                     result.nodes.append(
                         NodeSchema(
                             id=func_id,
@@ -176,6 +243,7 @@ class PythonParser(BaseParser):
                             line_end=node.end_point[0] + 1,
                             signature=self._get_signature(node, source),
                             docstring=self._get_docstring(node, source),
+                            local_bindings=local_bindings,
                         )
                     )
 

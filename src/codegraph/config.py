@@ -10,6 +10,7 @@ DEFAULT_EXCLUSIONS = {
     "third_party",
     "dist",
     "build",
+    ".build",
     "__pycache__",
     ".pytest_cache",
     ".codegraph",

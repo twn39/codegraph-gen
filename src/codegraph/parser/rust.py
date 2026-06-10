@@ -163,6 +163,99 @@ class RustParser(BaseParser):
                         sym_type = "function"
                         relation = "contains"
 
+                    local_bindings = {}
+
+                    def extract_rust_type(type_node) -> str | None:
+                        if type_node.type == "type_identifier":
+                            return source[type_node.start_byte : type_node.end_byte].decode("utf-8", errors="replace")
+                        elif type_node.type in ("pointer_type", "reference_type", "sliced_type", "array_type"):
+                            for child in type_node.children:
+                                if child.type not in ("&", "*", "mut", "const"):
+                                    res = extract_rust_type(child)
+                                    if res:
+                                        return res
+                        elif type_node.type == "generic_type":
+                            type_id_node = type_node.child_by_field_name("type")
+                            if type_id_node:
+                                return extract_rust_type(type_id_node)
+                        return None
+
+                    def collect_local_bindings(n):
+                        if n.type == "parameter":
+                            pattern_node = n.child_by_field_name("pattern")
+                            type_node = n.child_by_field_name("type")
+                            if pattern_node and type_node:
+                                var_name = None
+                                if pattern_node.type == "identifier":
+                                    var_name = source[pattern_node.start_byte : pattern_node.end_byte].decode("utf-8", errors="replace")
+                                elif pattern_node.type == "mut_pattern":
+                                    inner = pattern_node.child_by_field_name("pattern")
+                                    if inner and inner.type == "identifier":
+                                        var_name = source[inner.start_byte : inner.end_byte].decode("utf-8", errors="replace")
+                                if var_name:
+                                    t_name = extract_rust_type(type_node)
+                                    if t_name:
+                                        local_bindings[var_name] = t_name
+
+                        elif n.type == "let_declaration":
+                            pattern_node = n.child_by_field_name("pattern")
+                            type_node = n.child_by_field_name("type")
+                            value_node = n.child_by_field_name("value")
+                            
+                            var_name = None
+                            if pattern_node:
+                                if pattern_node.type == "identifier":
+                                    var_name = source[pattern_node.start_byte : pattern_node.end_byte].decode("utf-8", errors="replace")
+                                elif pattern_node.type == "mut_pattern":
+                                    inner = pattern_node.child_by_field_name("pattern")
+                                    if inner and inner.type == "identifier":
+                                        var_name = source[inner.start_byte : inner.end_byte].decode("utf-8", errors="replace")
+                            
+                            if var_name:
+                                type_name = None
+                                if type_node:
+                                    type_name = extract_rust_type(type_node)
+                                elif value_node:
+                                    if value_node.type == "call_expression":
+                                        func = value_node.child_by_field_name("function")
+                                        if func and func.type == "scoped_identifier":
+                                            path_node = func.child_by_field_name("path")
+                                            if path_node:
+                                                type_name = source[path_node.start_byte : path_node.end_byte].decode("utf-8", errors="replace")
+                                    elif value_node.type == "struct_expression":
+                                        name_node = value_node.child_by_field_name("name")
+                                        if name_node:
+                                            type_name = extract_rust_type(name_node)
+                                    elif value_node.type == "match_expression":
+                                        subject_node = value_node.child_by_field_name("value")
+                                        if not subject_node:
+                                            for child in value_node.children:
+                                                if child.type in ("match_block", "{"):
+                                                    break
+                                                if child.type != "match":
+                                                    subject_node = child
+                                                    break
+                                        if subject_node:
+                                            sub_ids = []
+                                            def collect_ids(sub_n):
+                                                if sub_n.type == "identifier":
+                                                    id_str = source[sub_n.start_byte : sub_n.end_byte].decode("utf-8", errors="replace")
+                                                    sub_ids.append(id_str)
+                                                for c in sub_n.children:
+                                                    collect_ids(c)
+                                            collect_ids(subject_node)
+                                            for sub_id in sub_ids:
+                                                if sub_id in local_bindings:
+                                                    type_name = local_bindings[sub_id]
+                                                    break
+                                if type_name:
+                                    local_bindings[var_name] = type_name
+
+                        for child in n.children:
+                            collect_local_bindings(child)
+
+                    collect_local_bindings(node)
+
                     result.nodes.append(
                         NodeSchema(
                             id=func_id,
@@ -173,6 +266,7 @@ class RustParser(BaseParser):
                             line_end=node.end_point[0] + 1,
                             signature=self._get_signature(node, source),
                             docstring=self._get_docstring(node, source),
+                            local_bindings=local_bindings,
                         )
                     )
 
@@ -311,13 +405,23 @@ class RustParser(BaseParser):
                     ):
                         parse_use_item(child)
 
-            elif node_type == "call_expression":
-                func_node = node.child_by_field_name("function")
-                if func_node:
-                    callee_name = source[
-                        func_node.start_byte : func_node.end_byte
-                    ].decode("utf-8", errors="replace")
+            elif node_type in ("call_expression", "method_call_expression"):
+                callee_name = None
+                if node_type == "call_expression":
+                    func_node = node.child_by_field_name("function")
+                    if func_node:
+                        callee_name = source[
+                            func_node.start_byte : func_node.end_byte
+                        ].decode("utf-8", errors="replace")
+                else:
+                    value_node = node.child_by_field_name("value")
+                    name_node = node.child_by_field_name("name")
+                    if value_node and name_node:
+                        receiver = source[value_node.start_byte : value_node.end_byte].decode("utf-8", errors="replace").strip()
+                        method = source[name_node.start_byte : name_node.end_byte].decode("utf-8", errors="replace").strip()
+                        callee_name = f"{receiver}.{method}"
 
+                if callee_name:
                     # Find enclosing caller function/method ID
                     caller_id = file_node_id
                     curr = node.parent
