@@ -477,7 +477,7 @@ def build_graph(extractions: list[ExtractionResult], workspace_dir: Path) -> nx.
             "os", "sys", "json", "time", "math", "re", "pathlib", "logging",
             "subprocess", "shutil", "hashlib", "urllib", "socket", "threading",
             "multiprocessing", "typing", "collections", "itertools", "functools",
-            "logger", "log", "console", "self", "this", "cls", "pytest", "unittest",
+            "logger", "log", "console", "pytest", "unittest",
             "fmt", "sync", "context", "strings", "bytes", "errors", "net", "http",
             "process", "document", "window", "global", "fs", "path", "std", "core",
             "env", "Logger"
