@@ -75,6 +75,7 @@ You MUST follow these rules when working in this codebase:
 
 3. **Keep Graph Sync'd**:
    - Whenever you create, delete, or modify code files, you **SHOULD** remind the user to run `codegraph build .` to rebuild the knowledge graph and keep it current.
+   - When running the build command, exclude irrelevant or generated directories (e.g., third-party dependencies, build folders, or documentation) using the `-e`/`--exclude` flag to keep the graph focused and clean (e.g., `codegraph build . -e third_party/`).
 """
 
 
