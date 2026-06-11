@@ -196,7 +196,7 @@ def install(platform: str):
     # 2. Skill file content
     skill_content = """---
 name: codegraph
-description: "Build a Markdown codebase knowledge graph using codegraph, perform logical component clustering, analyze god nodes/circular dependencies, and write deep Chinese architectural insights to .codegraph/README.md."
+description: "Build a Markdown codebase knowledge graph using codegraph, perform logical component clustering, analyze god nodes/circular dependencies, and write deep architectural insights to .codegraph/README.md."
 trigger: /codegraph
 ---
 
@@ -257,17 +257,17 @@ If the command fails or errors out, capture the terminal stderr/logs, display th
 Once the graph is built successfully:
 1. Read the newly generated `<path>/.codegraph/AGENT_PROMPT.md` file using your file reading tools.
 2. Read the project statistics, communities, god nodes, and cycle warnings from it.
-3. Perform a deep, professional architectural review of the codebase (using **Chinese** as the report language).
+3. Perform a deep, professional architectural review of the codebase (using **English** as the report language), combined with deep insight analysis of the code implementation of existing features.
 4. Focus your review on:
-   - **系统架构评估**：说明代码库的设计模式、模块化水准、物理目录与逻辑组件契合度。
-   - **核心抽象与边界评估**：对 God Nodes 进行深入把脉，分析哪些 is 核心支撑，哪些职责过重（God Object / Fat Class）可能导致高风险。
-   - **潜在瓶颈与架构重构建议**：指出高耦合风险点、循环依赖负面影响，并给出具体、可操作的重构优化方案（如解耦、提取接口、依赖倒置等）。
-5. Read the existing `<path>/.codegraph/README.md` first. If there's an existing `## AI 架构深度洞察 (AI Architectural Insights)` section, merge your new findings with it rather than silently overwriting and discarding previous edits.
-6. Write the completed report into `<path>/.codegraph/README.md` under the `## AI 架构深度洞察 (AI Architectural Insights)` section, replacing any placeholder instructions.
+   - **System Architecture Evaluation**: Explain the design patterns, modularity level, and alignment between physical directories and logical components in the codebase.
+   - **Core Abstractions & Boundary Evaluation**: Deeply analyze God Nodes to determine which ones are core support and which ones have excessive responsibilities (God Object / Fat Class) that may lead to high risk.
+   - **Potential Bottlenecks & Architectural Refactoring Recommendations**: Point out high-coupling risk points and negative impacts of circular dependencies, and provide specific, actionable refactoring optimization plans (e.g., decoupling, extracting interfaces, dependency inversion).
+5. Read the existing `<path>/.codegraph/README.md` first. If there's an existing `## AI Architectural Insights` section, merge your new findings with it rather than silently overwriting and discarding previous edits.
+6. Write the completed report into `<path>/.codegraph/README.md` under the `## AI Architectural Insights` section, replacing any placeholder instructions.
 
 ### Step 4 - Present Summary to the User
 
-Finally, reply to the user in Chinese, summarizing:
+Finally, reply to the user in English, summarizing:
 - The graph statistics (number of files, symbols, edges).
 - The logical component summary (with sizes and cohesion scores).
 - A brief bulleted summary of your key architectural findings and recommendations.

@@ -70,7 +70,7 @@ You MUST follow these rules when working in this codebase:
    - Use [.codegraph/components/](.codegraph/components/) and [.codegraph/nodes/](.codegraph/nodes/) to navigate component boundaries, file relationships, and symbol definitions. This is much faster and more token-efficient than reading raw source files directly.
 
 2. **AI Architectural Insights**:
-   - Check [.codegraph/README.md](.codegraph/README.md) for a section titled `AI 架构深度洞察 (AI Architectural Insights)`.
+   - Check [.codegraph/README.md](.codegraph/README.md) for a section titled `AI Architectural Insights`.
    - If this section is missing, incomplete, or contains placeholders, read [.codegraph/AGENT_PROMPT.md](.codegraph/AGENT_PROMPT.md), perform a deep architectural analysis of the project, and write your report into that section. Do not overwrite other sections.
 
 3. **Keep Graph Sync'd**:

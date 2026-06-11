@@ -42,36 +42,36 @@ def build_agent_prompt(
     cycle_list = []
     for c in cycles:
         cycle_list.append(" -> ".join(c + [c[0]]))
-    cycle_str = "\n".join(cycle_list) if cycle_list else "无循环依赖"
+    cycle_str = "\n".join(cycle_list) if cycle_list else "No circular dependencies"
 
     prompt = f"""# Codebase Architecture Analysis Prompt
 
-你是一个资深的软件架构专家。根据下面提供的代码库知识图谱元数据和主要组件之间的关系，为该项目撰写一份深刻的“AI 架构深度洞察分析报告”（使用中文书写）。
+You are a senior software architecture expert. Based on the codebase knowledge graph metadata and relationships between major components provided below, write a profound "AI Architectural Insights Report" for this project (written in English).
 
-【代码库图谱数据统计】
-- 物理文件数: {files_count}
-- 符号数 (类/结构体/函数/方法): {symbols_count}
-- 依赖与调用边总数: {G.number_of_edges()}
+[Codebase Graph Statistics]
+- Number of physical files: {files_count}
+- Number of symbols (classes/structs/functions/methods): {symbols_count}
+- Total number of dependency and call edges: {G.number_of_edges()}
 
-【逻辑组件划分 (Modularity Components)】
+[Modularity Components]
 {comp_str}
 
-【组件依赖拓扑图 (Mermaid Flowchart)】
+[Component Dependency Graph (Mermaid Flowchart)]
 ```mermaid
 {mermaid_graph}
 ```
 
-【核心抽象 God Nodes (度数代表连接的其它符号总数)】
+[God Nodes (degree represents the total number of connected symbols)]
 {god_str}
 
-【文件级循环导入依赖 (Import Cycles)】
+[File-level Circular Import Dependencies (Import Cycles)]
 {cycle_str}
 
-请基于上述代码结构和组件的关联关系，提供深入洞察分析，重点阐述以下三个方面：
-1. **系统架构评估**：说明代码库的设计模式、模块化水准、物理目录与逻辑组件契合度。
-2. **核心抽象与边界评估**：对 God Nodes 进行深入把脉，分析哪些是核心支撑，哪些职责过重（God Object / Fat Class）可能导致高风险。
-3. **潜在瓶颈与架构重构建议**：指出高耦合风险点、循环依赖负面影响，并给出具体、可操作的重构优化方案（如解耦、提取接口、依赖倒置等）。
+Please provide deep architectural insights based on the codebase structure and component relationships, focusing on the following three aspects:
+1. **System Architecture Evaluation**: Explain the design patterns, modularity level, and alignment between physical directories and logical components in the codebase.
+2. **Core Abstractions & Boundary Evaluation**: Deeply analyze God Nodes to determine which ones are core support and which ones have excessive responsibilities (God Object / Fat Class) that may lead to high risk.
+3. **Potential Bottlenecks & Architectural Refactoring Recommendations**: Point out high-coupling risk points and negative impacts of circular dependencies, and provide specific, actionable refactoring optimization plans (e.g., decoupling, extracting interfaces, dependency inversion).
 
-请以标准的 Markdown 格式输出，排版要清晰美观、专业严谨，不要包含首尾的 ```markdown 和 ``` 语法包裹标记，直接输出内容。
+Please output in standard Markdown format, clear and professional, without code block wrapper markers like ```markdown and ``` at the beginning and end. Output the content directly.
 """
     return prompt

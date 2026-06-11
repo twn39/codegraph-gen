@@ -296,7 +296,7 @@ class CodegraphEngine:
         if readme_path.exists():
             try:
                 old_readme = readme_path.read_text(encoding="utf-8")
-                marker = "## AI 架构深度洞察 (AI Architectural Insights)"
+                marker = "## AI Architectural Insights"
                 if marker in old_readme:
                     parts = old_readme.split(marker, 1)
                     insights_text = parts[1].strip()

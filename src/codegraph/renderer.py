@@ -36,17 +36,17 @@ class MarkdownRenderer:
 
         dir_desc_lines = []
         if directories:
-            dir_desc_lines.append("### 物理结构与层级 (Physical Structure & Layout)")
+            dir_desc_lines.append("### Physical Structure & Layout")
             for d_name, f_list in sorted(directories.items(), key=lambda x: -len(x[1])):
                 if d_name == ".":
                     dir_desc_lines.append(
-                        f"- **根目录 `.`** : 包含 {len(f_list)} 个配置文件或源文件。"
+                        f"- **Root directory `.`** : contains {len(f_list)} configuration or source files."
                     )
                 else:
                     files_preview = ", ".join(f"`{Path(f).name}`" for f in f_list[:3])
-                    suffix = " 等" if len(f_list) > 3 else ""
+                    suffix = " etc." if len(f_list) > 3 else ""
                     dir_desc_lines.append(
-                        f"- **`{d_name}/`** : 包含 {len(f_list)} 个源文件（如 {files_preview}{suffix}）。"
+                        f"- **`{d_name}/`** : contains {len(f_list)} source files (e.g., {files_preview}{suffix})."
                     )
 
         # 2. Find core entry points
@@ -59,16 +59,16 @@ class MarkdownRenderer:
 
         entry_desc_lines = []
         if entry_nodes:
-            entry_desc_lines.append("### 核心执行入口 (Core Execution Entrypoints)")
+            entry_desc_lines.append("### Core Execution Entrypoints")
             for name, sf in entry_nodes[:5]:
                 entry_desc_lines.append(
-                    f"- `{name}` (定义于 [{sf}](nodes/{get_node_filename(sf)}))"
+                    f"- `{name}` (defined in [{sf}](nodes/{get_node_filename(sf)}))"
                 )
 
         # 3. Compose architecture markdown
         arch_lines = [
-            "## 整体架构描述 (Architecture Overview)",
-            "本项目采用模块化软件系统设计。静态解析器对代码进行全量扫描并生成底层依赖 network，图谱通过社区发现算法完成逻辑聚类（Component-level clustering）。",
+            "## Architecture Overview",
+            "This project is built using a modular software system design. The static parser performs a full scan of the codebase to generate the underlying dependency network, and the knowledge graph groups symbols into logical components using a community detection algorithm (Component-level clustering).",
             "",
         ]
         if dir_desc_lines:
@@ -80,8 +80,8 @@ class MarkdownRenderer:
 
         arch_lines.extend(
             [
-                "### 逻辑控制流与数据依赖 (Control Flow & Data Dependencies)",
-                "代码系统中的数据流与逻辑控制围绕核心的类与组件进行。主要的组件及其逻辑拓扑调用关系展示在下方的关系图中，它以图形化形式呈现了系统的核心组件交互模型。",
+                "### Control Flow & Data Dependencies",
+                "Data flow and control logic in the system center around core classes and components. The main components and their logical topological call relationships are shown in the diagram below, visualizing the core component interaction model.",
             ]
         )
 
@@ -401,10 +401,10 @@ class MarkdownRenderer:
         readme_lines.append("")
 
         if not ai_insights:
-            ai_insights = """> 💡 **提示**：当前尚未生成 AI 架构深度洞察。请使用您的 AI Agent（如 Antigravity、Claude Code、Codex 等）读取 `.codegraph/AGENT_PROMPT.md` 中的提示词，并将分析结果填入此处。"""
+            ai_insights = """> 💡 **Tip**: AI architectural insights have not been generated yet. Please use your AI Agent (e.g., Antigravity, Claude Code, Codex) to read the prompt in `.codegraph/AGENT_PROMPT.md` and fill in the analysis results here."""
 
         readme_lines += [
-            "## AI 架构深度洞察 (AI Architectural Insights)",
+            "## AI Architectural Insights",
             ai_insights,
             "",
         ]
