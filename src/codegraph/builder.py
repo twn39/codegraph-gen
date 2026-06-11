@@ -269,11 +269,12 @@ def build_graph(extractions: list[ExtractionResult], workspace_dir: Path) -> nx.
             target.startswith(".")
             or "/" in target
             or "\\" in target
-            or any(
+        )
+        if not is_path_target and file_languages.get(source_file) in ("c", "cpp"):
+            is_path_target = any(
                 target.endswith(ext)
                 for ext in (".h", ".hpp", ".hxx", ".c", ".cpp", ".cc", ".cxx")
             )
-        )
 
         if is_path_target:
             source_dir = (Path(workspace_dir) / Path(source_file)).parent
