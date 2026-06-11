@@ -291,7 +291,12 @@ Finally, reply to the user in English, summarizing:
 @cli.command()
 def info():
     """Prints tool info and supported languages."""
-    console.print("[bold]codegraph v0.1.0[/bold]")
+    try:
+        from importlib.metadata import version
+        ver = version("codegraph")
+    except Exception:
+        ver = "0.2.0"
+    console.print(f"[bold]codegraph v{ver}[/bold]")
     console.print(
         "Supported languages: Python, JavaScript, TypeScript, Go, Rust, Swift"
     )
