@@ -141,13 +141,19 @@ def test_common_builtin_methods_filtering():
     with tempfile.TemporaryDirectory() as tmpdir:
         workspace = Path(tmpdir).resolve()
 
-        # Define a user class with append/resume method in user.py
+        # Define a user class with append/resume/len/is_empty/new methods in user.py
         user = workspace / "user.py"
         user.write_text("""
 class PacketBuffer:
     def append(self, x):
         pass
     def resume(self):
+        pass
+    def len(self):
+        pass
+    def is_empty(self):
+        pass
+    def new(self):
         pass
 """)
 
@@ -157,6 +163,9 @@ def run():
     cues = []
     cues.append(1)  # This is a builtin method call, should not connect to user.py::PacketBuffer.append
     task.resume()   # This is a common network task method, should not connect to user.py::PacketBuffer.resume
+    cues.len()
+    cues.is_empty()
+    other.new()
 """)
 
         py_parser = PythonParser()
@@ -169,6 +178,10 @@ def run():
         assert not G.has_edge("caller.py::run", "user.py::PacketBuffer.append")
         # The call to task.resume() should not connect to user.py::PacketBuffer.resume
         assert not G.has_edge("caller.py::run", "user.py::PacketBuffer.resume")
+        # The calls to len, is_empty, and new should not connect
+        assert not G.has_edge("caller.py::run", "user.py::PacketBuffer.len")
+        assert not G.has_edge("caller.py::run", "user.py::PacketBuffer.is_empty")
+        assert not G.has_edge("caller.py::run", "user.py::PacketBuffer.new")
 
 
 def test_swift_local_scope_type_binding():
@@ -278,5 +291,42 @@ def run(img_param: HeifImage):
         # Verify correct exact connections were made
         assert G.has_edge("caller.py::run", "context.py::HeifContext.read_from_file")
         assert G.has_edge("caller.py::run", "image.py::HeifImage.add_plane")
+
+
+def test_external_type_method_fallback_bypass():
+    from codegraph.parser.rust import RustParser
+    with tempfile.TemporaryDirectory() as tmpdir:
+        workspace = Path(tmpdir).resolve()
+
+        # 1. Define a user struct with a custom method (e.g. read)
+        user_file = workspace / "user.rs"
+        user_file.write_text("""
+struct CustomBuffer;
+impl CustomBuffer {
+    fn read(&self) {}
+}
+""")
+
+        # 2. Define a caller that calls read on an external type (e.g. standard BufReader)
+        caller_file = workspace / "caller.rs"
+        caller_file.write_text("""
+fn run() {
+    let reader: BufReader = get_reader();
+    reader.read(); // BufReader is external, so reader.read() should not connect to CustomBuffer::read
+}
+""")
+
+        rust_parser = RustParser()
+        res_user = rust_parser.parse_file(user_file, workspace)
+        res_caller = rust_parser.parse_file(caller_file, workspace)
+
+        G = build_graph([res_user, res_caller], workspace)
+
+        # Verify CustomBuffer::read was extracted
+        assert "user.rs::CustomBuffer.read" in G.nodes
+
+        # Verify the call to reader.read() did NOT resolve to CustomBuffer::read via global fallback
+        assert not G.has_edge("caller.rs::run", "user.rs::CustomBuffer.read")
+
 
 

@@ -232,6 +232,46 @@ COMMON_BUILTIN_METHODS: set[str] = {
     "stop",
     "send",
     "receive",
+    # Added common programming language method/constructor names
+    "len",
+    "new",
+    "is_empty",
+    "clone",
+    "default",
+    "parse",
+    "format",
+    "read",
+    "write",
+    "close",
+    "flush",
+    "to_string",
+    "to_str",
+    "as_str",
+    "as_ref",
+    "as_mut",
+    "unwrap",
+    "expect",
+    "iter",
+    "iter_mut",
+    "into_iter",
+    "next",
+    "into",
+    "from",
+    "ok",
+    "err",
+    "clear",
+    "get",
+    "set",
+    "add",
+    "keys",
+    "values",
+    "items",
+    "update",
+    "copy",
+    "find",
+    "index",
+    "last",
+    "first",
 }
 
 
@@ -470,6 +510,10 @@ def build_graph(extractions: list[ExtractionResult], workspace_dir: Path) -> nx.
                         parent_class_name = parent_class_part.rsplit("::", 1)[-1] if "::" in parent_class_part else parent_class_part
                         if parent_class_name == receiver_type or parent_class_name.endswith(f".{receiver_type}"):
                             return nid
+            else:
+                # Known type but not defined in the workspace -> external/standard library type.
+                # Bypassing global fallback to prevent incorrect resolution of its methods.
+                return None
 
         # 2. Local lexical scope check
         # self / this / cls references
