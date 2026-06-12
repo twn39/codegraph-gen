@@ -59,7 +59,6 @@ Issues = "https://github.com/twn39/codegraph/issues"
 
 [project.scripts]
 codegraph = "codegraph_gen.__main__:main"
-codegraph-gen = "codegraph_gen.__main__:main"
 
 [build-system]
 requires = ["uv_build>=0.9.26,<0.10.0"]
