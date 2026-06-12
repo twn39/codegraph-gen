@@ -77,13 +77,12 @@ class PipelineResult(BaseModel):
 
 
 class CodegraphEngine:
-    def __init__(self, config: CodegraphConfig):
-        self.config = config
-        self.renderer = MarkdownRenderer(config.workspace_dir)
+    def __init__(self):
         self.writer = VaultWriter()
 
     def run_pipeline(
         self,
+        config: CodegraphConfig,
         progress_callback: Optional[
             Callable[[PipelineStage, Any, int, int], None]
         ] = None,
@@ -91,14 +90,18 @@ class CodegraphEngine:
         """
         Runs the full codegraph generation pipeline.
         Args:
+            config: Configuration settings.
             progress_callback: A function taking (stage, current_item, index, total)
         """
         logger.info("Starting codegraph engine pipeline...")
+        renderer = MarkdownRenderer(config.workspace_dir)
 
         # 1. Discover files
         if progress_callback:
             progress_callback(PipelineStage.DISCOVERING, None, 0, 0)
-        files = discover_files(self.config)
+        files = discover_files(
+            config.workspace_dir, config.languages, config.exclusions
+        )
         if not files:
             logger.warning("No supported files found.")
             if progress_callback:
@@ -116,9 +119,9 @@ class CodegraphEngine:
         extractions = []
         total_files = len(files)
 
-        cache_path = self.config.absolute_output_dir / "cache.json"
+        cache_path = config.absolute_output_dir / "cache.json"
         cache_entries = {}
-        if self.config.use_cache and cache_path.exists():
+        if config.use_cache and cache_path.exists():
             try:
                 with open(cache_path, "r", encoding="utf-8") as f:
                     cache_data = json.load(f)
@@ -132,7 +135,7 @@ class CodegraphEngine:
         new_cache_entries = {}
 
         for file_path, lang in files:
-            rel_path = str(file_path.relative_to(self.config.workspace_dir))
+            rel_path = str(file_path.relative_to(config.workspace_dir))
             try:
                 stat = file_path.stat()
                 mtime = stat.st_mtime
@@ -170,7 +173,7 @@ class CodegraphEngine:
             if progress_callback:
                 progress_callback(PipelineStage.PARSING, None, total_files, total_files)
         else:
-            max_workers = self.config.max_workers
+            max_workers = config.max_workers
             if max_workers > 1 and len(files_to_parse) > 1:
                 logger.info(
                     f"Parsing {len(files_to_parse)} files in parallel with {max_workers} workers..."
@@ -183,7 +186,7 @@ class CodegraphEngine:
                             _parse_file_worker,
                             file_path,
                             lang,
-                            self.config.workspace_dir,
+                            config.workspace_dir,
                         ): (file_path, rel_path, mtime, size, file_hash)
                         for file_path, lang, rel_path, mtime, size, file_hash in files_to_parse
                     }
@@ -235,7 +238,7 @@ class CodegraphEngine:
                         )
                     try:
                         parser = get_parser(lang)
-                        result = parser.parse_file(file_path, self.config.workspace_dir)
+                        result = parser.parse_file(file_path, config.workspace_dir)
                         extractions.append(result)
                         if file_hash:
                             new_cache_entries[rel_path] = CacheEntry(
@@ -247,7 +250,7 @@ class CodegraphEngine:
         # 3. Build graph
         if progress_callback:
             progress_callback(PipelineStage.BUILDING, None, 0, 0)
-        G = build_graph(extractions, self.config.workspace_dir)
+        G = build_graph(extractions, config.workspace_dir)
 
         # 4. Component clustering
         if progress_callback:
@@ -271,7 +274,7 @@ class CodegraphEngine:
         rendered_nodes = {}
         for nid, ndata in G.nodes(data=True):
             fname = get_node_filename(nid)
-            content = self.renderer.render_node_page(nid, ndata, G, node_component_map)
+            content = renderer.render_node_page(nid, ndata, G, node_component_map)
             rendered_nodes[fname] = content
 
         rendered_components = {}
@@ -279,7 +282,7 @@ class CodegraphEngine:
             comp_name = component_names[cid]
             cohesion = cohesion_scores[cid]
             fname = get_component_filename(comp_name)
-            content = self.renderer.render_component_page(
+            content = renderer.render_component_page(
                 cid,
                 members,
                 G,
@@ -292,7 +295,7 @@ class CodegraphEngine:
 
         # Check if README already has AI Insights and preserve it
         ai_insights = None
-        readme_path = self.config.absolute_output_dir / "README.md"
+        readme_path = config.absolute_output_dir / "README.md"
         if readme_path.exists():
             try:
                 old_readme = readme_path.read_text(encoding="utf-8")
@@ -315,7 +318,7 @@ class CodegraphEngine:
                     f"Could not read existing README.md to preserve AI insights: {e}"
                 )
 
-        readme_content = self.renderer.render_readme(
+        readme_content = renderer.render_readme(
             G,
             components,
             cohesion_scores,
@@ -324,7 +327,7 @@ class CodegraphEngine:
             ai_insights=ai_insights,
         )
 
-        prompt_content = self.renderer.render_agent_prompt(
+        prompt_content = renderer.render_agent_prompt(
             G, components, cohesion_scores, component_names, analysis
         )
 
@@ -332,7 +335,7 @@ class CodegraphEngine:
         if progress_callback:
             progress_callback(PipelineStage.WRITING, None, 0, 0)
         self.writer.write_vault(
-            self.config.absolute_output_dir,
+            config.absolute_output_dir,
             rendered_nodes,
             rendered_components,
             readme_content,
@@ -340,9 +343,9 @@ class CodegraphEngine:
         )
 
         # Write updated cache back to disk
-        if self.config.use_cache:
+        if config.use_cache:
             try:
-                self.config.absolute_output_dir.mkdir(parents=True, exist_ok=True)
+                config.absolute_output_dir.mkdir(parents=True, exist_ok=True)
                 with open(cache_path, "w", encoding="utf-8") as f:
                     json.dump(
                         {k: v.model_dump() for k, v in new_cache_entries.items()},

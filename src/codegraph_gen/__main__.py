@@ -93,7 +93,7 @@ def build(
 
     from codegraph_gen.engine import CodegraphEngine, PipelineStage
 
-    engine = CodegraphEngine(config)
+    engine = CodegraphEngine()
 
     # Run pipeline with click progress bar
     with Progress(
@@ -129,7 +129,7 @@ def build(
             elif stage == PipelineStage.COMPLETED:
                 progress.update(task, description="Done!")
 
-        result = engine.run_pipeline(progress_callback=progress_callback)
+        result = engine.run_pipeline(config, progress_callback=progress_callback)
 
     G = result.graph
     if G.number_of_nodes() == 0:

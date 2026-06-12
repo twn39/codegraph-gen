@@ -1,11 +1,15 @@
 import logging
 from pathlib import Path
-from codegraph_gen.config import CodegraphConfig, LANGUAGE_EXTENSIONS
+from codegraph_gen.config import LANGUAGE_EXTENSIONS
 
 logger = logging.getLogger(__name__)
 
 
-def discover_files(config: CodegraphConfig) -> list[tuple[Path, str]]:
+def discover_files(
+    workspace_dir: Path,
+    languages: set[str],
+    exclusions: set[str],
+) -> list[tuple[Path, str]]:
     """
     Recursively discovers source files in the workspace directory.
     Filters by allowed languages and ignores files/directories in exclusions.
@@ -14,17 +18,17 @@ def discover_files(config: CodegraphConfig) -> list[tuple[Path, str]]:
         List of tuples: (absolute_file_path, language_name)
     """
     found_files = []
-    workspace = config.workspace_dir.resolve()
+    workspace = workspace_dir.resolve()
 
     # Map extension -> language
     ext_to_lang = {}
-    for lang in config.languages:
+    for lang in languages:
         if lang in LANGUAGE_EXTENSIONS:
             for ext in LANGUAGE_EXTENSIONS[lang]:
                 ext_to_lang[ext] = lang
 
     # Normalize exclusions to lowercase for case-insensitive matching
-    exclusions_lower = {exc.lower() for exc in config.exclusions}
+    exclusions_lower = {exc.lower() for exc in exclusions}
 
     def is_ignored(path: Path) -> bool:
         # Check if any part of the path is in exclusions_lower

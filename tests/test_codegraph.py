@@ -52,7 +52,9 @@ def test_detect():
         # Unsupported file extension
         (workspace / "src" / "doc.txt").write_text("some text")
 
-        files = discover_files(config)
+        files = discover_files(
+            config.workspace_dir, config.languages, config.exclusions
+        )
         paths = [p for p, _ in files]
 
         assert len(files) == 2
@@ -359,14 +361,14 @@ def test_engine_pipeline_and_callbacks():
         (workspace / "foo.py").write_text("def test():\n    pass\n")
 
         config = CodegraphConfig(workspace_dir=workspace)
-        engine = CodegraphEngine(config)
+        engine = CodegraphEngine()
 
         stages_seen = []
 
         def callback(stage, current_item, idx, total):
             stages_seen.append(stage)
 
-        result = engine.run_pipeline(progress_callback=callback)
+        result = engine.run_pipeline(config, progress_callback=callback)
 
         # Verify that all stages were traversed in order
         assert PipelineStage.DISCOVERING in stages_seen
@@ -563,10 +565,10 @@ def test_incremental_caching_and_parallel_pipeline():
 
         # Configure to use parallel parsing with 2 workers and caching enabled
         config = CodegraphConfig(workspace_dir=workspace, max_workers=2, use_cache=True)
-        engine = CodegraphEngine(config)
+        engine = CodegraphEngine()
 
         # --- First Run (Cold Run: Cache Miss) ---
-        res1 = engine.run_pipeline()
+        res1 = engine.run_pipeline(config)
         cache_file = config.absolute_output_dir / "cache.json"
 
         # Assert cache was written and has 2 entries
@@ -592,7 +594,7 @@ def test_incremental_caching_and_parallel_pipeline():
 
         # --- Second Run (Hot Run: Cache Hit, No Changes) ---
         # Run again. It should read from cache and skip parsing.
-        res2 = engine.run_pipeline()
+        res2 = engine.run_pipeline(config)
         # Verify result is the same
         assert len(res2.files) == 2
         assert any(
@@ -613,7 +615,7 @@ def test_incremental_caching_and_parallel_pipeline():
         time.sleep(0.01)  # small sleep
         file_a.write_text("def func_a_modified():\n    print('A modified')\n")
 
-        res3 = engine.run_pipeline()
+        res3 = engine.run_pipeline(config)
         assert len(res3.files) == 2
         # Verify func_a_modified is present
         assert any(
