@@ -1,4 +1,11 @@
-# codegraph-gen
+<h1 align="center">codegraph-gen</h1>
+
+<p align="center">
+  <a href="https://github.com/astral-sh/uv"><img src="https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/uv/main/assets/badge/v0.json" alt="uv"></a>
+  <img src="https://img.shields.io/badge/python-3.12+-blue.svg" alt="Python Version">
+  <img src="https://img.shields.io/badge/code%20style-ruff-26b22f.svg" alt="Ruff">
+  <img src="https://img.shields.io/badge/license-MIT-green.svg" alt="License">
+</p>
 
 `codegraph-gen` 是一个面向 AI Agent（如 Antigravity、Codex、Claude Code 等）的静态代码知识图谱生成工具。它能够静态解析多语言 codebase，通过社区发现算法自动进行组件聚类，并导出为由标准 Markdown 文件组成的关联图谱库（Obsidian-like vault），极大地辅助 AI Agent 在本地进行精准的架构理解、逻辑导航与深度洞察分析。
 
