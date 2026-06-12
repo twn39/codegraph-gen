@@ -294,12 +294,12 @@ def info():
     try:
         from importlib.metadata import version
 
-        ver = version("codegraph")
+        ver = version("codegraph-gen")
     except Exception:
-        ver = "0.2.0"
+        ver = "1.0.0"
     console.print(f"[bold]codegraph v{ver}[/bold]")
     console.print(
-        "Supported languages: Python, JavaScript, TypeScript, Go, Rust, Swift"
+        "Supported languages: Python, JavaScript, TypeScript, Kotlin, Go, Rust, Swift"
     )
 
 
