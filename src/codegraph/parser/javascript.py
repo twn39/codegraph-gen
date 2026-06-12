@@ -178,6 +178,93 @@ class JavaScriptParser(BaseParser):
                         func_id = f"{rel_path}::{func_name}"
                         sym_type = "function"
 
+                    local_bindings = {}
+
+                    def extract_type_from_ts_node(ts_node):
+                        if ts_node.type == "type_identifier":
+                            return source[ts_node.start_byte : ts_node.end_byte].decode(
+                                "utf-8", errors="replace"
+                            )
+                        elif ts_node.type == "property_identifier":
+                            return source[ts_node.start_byte : ts_node.end_byte].decode(
+                                "utf-8", errors="replace"
+                            )
+                        elif ts_node.type == "nested_type_identifier":
+                            for child in reversed(ts_node.children):
+                                if child.type in ("type_identifier", "identifier"):
+                                    return extract_type_from_ts_node(child)
+                        elif ts_node.type == "generic_type":
+                            type_node = ts_node.child_by_field_name("name") or (
+                                ts_node.children[0] if ts_node.children else None
+                            )
+                            if type_node:
+                                return extract_type_from_ts_node(type_node)
+                        elif ts_node.type == "new_expression":
+                            constructor_node = ts_node.child_by_field_name(
+                                "constructor"
+                            )
+                            if constructor_node:
+                                if constructor_node.type == "identifier":
+                                    return source[
+                                        constructor_node.start_byte : constructor_node.end_byte
+                                    ].decode("utf-8", errors="replace")
+                                elif constructor_node.type == "member_expression":
+                                    prop = constructor_node.child_by_field_name(
+                                        "property"
+                                    )
+                                    if prop:
+                                        return source[
+                                            prop.start_byte : prop.end_byte
+                                        ].decode("utf-8", errors="replace")
+                        elif ts_node.type == "type_annotation":
+                            for child in ts_node.children:
+                                res = extract_type_from_ts_node(child)
+                                if res:
+                                    return res
+                        for child in ts_node.children:
+                            res = extract_type_from_ts_node(child)
+                            if res:
+                                return res
+                        return None
+
+                    def collect_local_bindings(n):
+                        if n.type in ("required_parameter", "optional_parameter"):
+                            pattern = n.child_by_field_name("pattern")
+                            type_node = n.child_by_field_name("type")
+                            if pattern and pattern.type == "identifier" and type_node:
+                                var_name = source[
+                                    pattern.start_byte : pattern.end_byte
+                                ].decode("utf-8", errors="replace")
+                                t_name = extract_type_from_ts_node(type_node)
+                                if t_name:
+                                    local_bindings[var_name] = t_name
+                        elif n.type == "variable_declarator":
+                            name_node = n.child_by_field_name("name")
+                            value_node = n.child_by_field_name("value")
+                            type_node = n.child_by_field_name("type")
+                            if name_node and name_node.type == "identifier":
+                                var_name = source[
+                                    name_node.start_byte : name_node.end_byte
+                                ].decode("utf-8", errors="replace")
+                                if type_node:
+                                    t_name = extract_type_from_ts_node(type_node)
+                                    if t_name:
+                                        local_bindings[var_name] = t_name
+                                elif value_node and value_node.type == "new_expression":
+                                    t_name = extract_type_from_ts_node(value_node)
+                                    if t_name:
+                                        local_bindings[var_name] = t_name
+
+                        for child in n.children:
+                            if child.type not in (
+                                "function_declaration",
+                                "method_definition",
+                                "class_declaration",
+                            ):
+                                collect_local_bindings(child)
+
+                    collect_local_bindings(node)
+
                     result.nodes.append(
                         NodeSchema(
                             id=func_id,
@@ -188,6 +275,7 @@ class JavaScriptParser(BaseParser):
                             line_end=node.end_point[0] + 1,
                             signature=self._get_signature(node, source),
                             docstring=self._get_docstring(node, source),
+                            local_bindings=local_bindings,
                         )
                     )
 

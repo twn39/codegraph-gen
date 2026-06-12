@@ -193,7 +193,9 @@ class SwiftParser(BaseParser):
 
                     def extract_type_id(tc):
                         if tc.type == "type_identifier":
-                            return source[tc.start_byte : tc.end_byte].decode("utf-8", errors="replace")
+                            return source[tc.start_byte : tc.end_byte].decode(
+                                "utf-8", errors="replace"
+                            )
                         for gc in tc.children:
                             res = extract_type_id(gc)
                             if res:
@@ -207,7 +209,9 @@ class SwiftParser(BaseParser):
                                 if child.type == "pattern":
                                     for gc in child.children:
                                         if gc.type == "simple_identifier":
-                                            var_name = source[gc.start_byte : gc.end_byte].decode("utf-8", errors="replace")
+                                            var_name = source[
+                                                gc.start_byte : gc.end_byte
+                                            ].decode("utf-8", errors="replace")
                             if var_name:
                                 type_name = None
                                 for child in n.children:
@@ -218,7 +222,9 @@ class SwiftParser(BaseParser):
                                         if child.type == "call_expression":
                                             for gc in child.children:
                                                 if gc.type == "simple_identifier":
-                                                    type_name = source[gc.start_byte : gc.end_byte].decode("utf-8", errors="replace")
+                                                    type_name = source[
+                                                        gc.start_byte : gc.end_byte
+                                                    ].decode("utf-8", errors="replace")
                                 if type_name:
                                     local_bindings[var_name] = type_name
                         elif n.type == "parameter":
@@ -227,7 +233,11 @@ class SwiftParser(BaseParser):
                             seen_colon = False
                             for child in n.children:
                                 if child.type == "simple_identifier" and not seen_colon:
-                                    identifiers.append(source[child.start_byte : child.end_byte].decode("utf-8", errors="replace"))
+                                    identifiers.append(
+                                        source[
+                                            child.start_byte : child.end_byte
+                                        ].decode("utf-8", errors="replace")
+                                    )
                                 elif child.type == ":":
                                     seen_colon = True
                                 elif seen_colon:

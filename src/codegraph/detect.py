@@ -39,7 +39,6 @@ def discover_files(config: CodegraphConfig) -> list[tuple[Path, str]]:
                 return True
         return False
 
-
     def scan_dir(directory: Path):
         try:
             for item in directory.iterdir():

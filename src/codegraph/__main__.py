@@ -293,6 +293,7 @@ def info():
     """Prints tool info and supported languages."""
     try:
         from importlib.metadata import version
+
         ver = version("codegraph")
     except Exception:
         ver = "0.2.0"

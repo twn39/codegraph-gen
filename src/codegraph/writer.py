@@ -78,7 +78,6 @@ You MUST follow these rules when working in this codebase:
    - When running the build command, exclude irrelevant or generated directories (e.g., third-party dependencies, build folders, or documentation) using the `-e`/`--exclude` flag to keep the graph focused and clean (e.g., `codegraph build . -e third_party/`).
 """
 
-
         if agents_file.exists():
             try:
                 content = agents_file.read_text(encoding="utf-8")

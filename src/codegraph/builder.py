@@ -305,11 +305,7 @@ def build_graph(extractions: list[ExtractionResult], workspace_dir: Path) -> nx.
     def resolve_import_to_file_node(source_file: str, target: str) -> str | None:
         # Check if target is a direct relative/absolute file path
         # (either starting with '.' or containing '/' or having a C/C++ file extension)
-        is_path_target = (
-            target.startswith(".")
-            or "/" in target
-            or "\\" in target
-        )
+        is_path_target = target.startswith(".") or "/" in target or "\\" in target
         if not is_path_target and file_languages.get(source_file) in ("c", "cpp"):
             is_path_target = any(
                 target.endswith(ext)
@@ -363,7 +359,9 @@ def build_graph(extractions: list[ExtractionResult], workspace_dir: Path) -> nx.
                 if (
                     nid.replace("\\", "/").endswith(target_path_part)
                     or nid.replace("\\", "/").endswith(target_path_part + ".py")
-                    or nid.replace("\\", "/").endswith(target_path_part + "/__init__.py")
+                    or nid.replace("\\", "/").endswith(
+                        target_path_part + "/__init__.py"
+                    )
                     or nid.replace("\\", "/").endswith(target_path_part + ".go")
                     or nid.replace("\\", "/").endswith(target_path_part + ".rs")
                 ):
@@ -380,7 +378,8 @@ def build_graph(extractions: list[ExtractionResult], workspace_dir: Path) -> nx.
             lang = "python"
             for lang_name, exts in {
                 "python": {".py"},
-                "javascript": {".js", ".mjs", ".cjs", ".ts", ".tsx"},
+                "javascript": {".js", ".mjs", ".cjs"},
+                "typescript": {".ts", ".tsx"},
                 "go": {".go"},
                 "rust": {".rs"},
                 "swift": {".swift"},
@@ -463,36 +462,42 @@ def build_graph(extractions: list[ExtractionResult], workspace_dir: Path) -> nx.
         if len(parts) > 1 and main_symbol in local_bindings:
             receiver_type = local_bindings[main_symbol]
             resolved_class_id = None
-            
+
             # Check if it's declared in the same file
             file_cand = f"{source_file}::{receiver_type}"
             if file_cand in node_ids:
                 resolved_class_id = file_cand
-            
+
             # Check explicit imports
             elif receiver_type in scope.imported_symbols:
                 target_file_id, original_name = scope.imported_symbols[receiver_type]
                 resolved_class_id = f"{target_file_id}::{original_name}"
-            
+
             # Check package siblings (for Go/Swift)
             elif lang in ("go", "swift"):
                 caller_dir = Path(source_file).parent
                 for nid in node_ids:
                     ndata = G.nodes[nid]
-                    if ndata.get("type") in ("class", "struct", "interface", "enum") and ndata.get("label") == receiver_type:
+                    if (
+                        ndata.get("type") in ("class", "struct", "interface", "enum")
+                        and ndata.get("label") == receiver_type
+                    ):
                         node_file = ndata.get("source_file", "")
                         if node_file and Path(node_file).parent == caller_dir:
                             resolved_class_id = nid
                             break
-            
+
             # Global fallback for class/struct name if not found in current module/scope
             if not resolved_class_id:
                 for nid in node_ids:
                     ndata = G.nodes[nid]
-                    if ndata.get("type") in ("class", "struct", "interface", "enum") and ndata.get("label") == receiver_type:
+                    if (
+                        ndata.get("type") in ("class", "struct", "interface", "enum")
+                        and ndata.get("label") == receiver_type
+                    ):
                         resolved_class_id = nid
                         break
-            
+
             if resolved_class_id:
                 target_method_id = f"{resolved_class_id}.{rest_of_callee}"
                 if target_method_id in node_ids:
@@ -505,10 +510,20 @@ def build_graph(extractions: list[ExtractionResult], workspace_dir: Path) -> nx.
                 method_name = parts[-1]
                 for nid in node_ids:
                     ndata = G.nodes[nid]
-                    if ndata.get("type") in ("method", "function") and ndata.get("label") == method_name:
+                    if (
+                        ndata.get("type") in ("method", "function")
+                        and ndata.get("label") == method_name
+                    ):
                         parent_class_part = nid.rsplit(".", 1)[0] if "." in nid else ""
-                        parent_class_name = parent_class_part.rsplit("::", 1)[-1] if "::" in parent_class_part else parent_class_part
-                        if parent_class_name == receiver_type or parent_class_name.endswith(f".{receiver_type}"):
+                        parent_class_name = (
+                            parent_class_part.rsplit("::", 1)[-1]
+                            if "::" in parent_class_part
+                            else parent_class_part
+                        )
+                        if (
+                            parent_class_name == receiver_type
+                            or parent_class_name.endswith(f".{receiver_type}")
+                        ):
                             return nid
             else:
                 # Known type but not defined in the workspace -> external/standard library type.
@@ -604,13 +619,48 @@ def build_graph(extractions: list[ExtractionResult], workspace_dir: Path) -> nx.
 
         # 6. Global fallback check
         if main_symbol in {
-            "os", "sys", "json", "time", "math", "re", "pathlib", "logging",
-            "subprocess", "shutil", "hashlib", "urllib", "socket", "threading",
-            "multiprocessing", "typing", "collections", "itertools", "functools",
-            "logger", "log", "console", "pytest", "unittest",
-            "fmt", "sync", "context", "strings", "bytes", "errors", "net", "http",
-            "process", "document", "window", "global", "fs", "path", "std", "core",
-            "env", "Logger"
+            "os",
+            "sys",
+            "json",
+            "time",
+            "math",
+            "re",
+            "pathlib",
+            "logging",
+            "subprocess",
+            "shutil",
+            "hashlib",
+            "urllib",
+            "socket",
+            "threading",
+            "multiprocessing",
+            "typing",
+            "collections",
+            "itertools",
+            "functools",
+            "logger",
+            "log",
+            "console",
+            "pytest",
+            "unittest",
+            "fmt",
+            "sync",
+            "context",
+            "strings",
+            "bytes",
+            "errors",
+            "net",
+            "http",
+            "process",
+            "document",
+            "window",
+            "global",
+            "fs",
+            "path",
+            "std",
+            "core",
+            "env",
+            "Logger",
         } or any(p in {"logger", "log", "logging", "console"} for p in parts):
             return None
 

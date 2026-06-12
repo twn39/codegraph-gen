@@ -297,7 +297,11 @@ class CodegraphEngine:
             try:
                 old_readme = readme_path.read_text(encoding="utf-8")
                 marker = None
-                for m in ("## AI Architectural Insights", "## AI 架构深度洞察 (AI Architectural Insights)", "## AI 架构深度洞察"):
+                for m in (
+                    "## AI Architectural Insights",
+                    "## AI 架构深度洞察 (AI Architectural Insights)",
+                    "## AI 架构深度洞察",
+                ):
                     if m in old_readme:
                         marker = m
                         break

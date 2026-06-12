@@ -186,6 +186,7 @@ def run():
 
 def test_swift_local_scope_type_binding():
     from codegraph.parser.swift import SwiftParser
+
     with tempfile.TemporaryDirectory() as tmpdir:
         workspace = Path(tmpdir).resolve()
 
@@ -227,19 +228,25 @@ class Caller {
         assert caller_run_node is not None
         assert caller_run_node.local_bindings == {
             "player": "EdgeTTSPlayer",
-            "decoder": "AudioDecoderActor"
+            "decoder": "AudioDecoderActor",
         }
 
         # Build graph and check edges
         G = build_graph([res_decoder, res_player, res_caller], workspace)
 
         # Verify correct exact connections were made
-        assert G.has_edge("Caller.swift::Caller.run", "AudioDecoderActor.swift::AudioDecoderActor.decode")
-        assert G.has_edge("Caller.swift::Caller.run", "EdgeTTSPlayer.swift::EdgeTTSPlayer.play")
+        assert G.has_edge(
+            "Caller.swift::Caller.run",
+            "AudioDecoderActor.swift::AudioDecoderActor.decode",
+        )
+        assert G.has_edge(
+            "Caller.swift::Caller.run", "EdgeTTSPlayer.swift::EdgeTTSPlayer.play"
+        )
 
 
 def test_python_local_scope_type_binding():
     from codegraph.parser.python import PythonParser
+
     with tempfile.TemporaryDirectory() as tmpdir:
         workspace = Path(tmpdir).resolve()
 
@@ -282,7 +289,7 @@ def run(img_param: HeifImage):
         assert caller_run_node.local_bindings == {
             "img_param": "HeifImage",
             "ctx": "HeifContext",
-            "ctx_mgr": "HeifContext"
+            "ctx_mgr": "HeifContext",
         }
 
         # Build graph and check edges
@@ -295,6 +302,7 @@ def run(img_param: HeifImage):
 
 def test_external_type_method_fallback_bypass():
     from codegraph.parser.rust import RustParser
+
     with tempfile.TemporaryDirectory() as tmpdir:
         workspace = Path(tmpdir).resolve()
 
@@ -329,4 +337,63 @@ fn run() {
         assert not G.has_edge("caller.rs::run", "user.rs::CustomBuffer.read")
 
 
+def test_typescript_local_scope_type_binding():
+    from codegraph.parser.javascript import JavaScriptParser
 
+    with tempfile.TemporaryDirectory() as tmpdir:
+        workspace = Path(tmpdir).resolve()
+
+        # 1. Define class AudioDecoderActor with decode method
+        decoder_file = workspace / "AudioDecoderActor.ts"
+        decoder_file.write_text("""
+class AudioDecoderActor {
+    decode(data: any) {}
+}
+""")
+
+        # 2. Define class EdgeTTSPlayer with play method
+        player_file = workspace / "EdgeTTSPlayer.ts"
+        player_file.write_text("""
+class EdgeTTSPlayer {
+    play() {}
+}
+""")
+
+        # 3. Define Caller with parameter and local variable bindings
+        caller_file = workspace / "Caller.ts"
+        caller_file.write_text("""
+class Caller {
+    run(player: EdgeTTSPlayer) {
+        let decoder: AudioDecoderActor = new AudioDecoderActor();
+        let otherDecoder = new AudioDecoderActor();
+        decoder.decode("test");
+        otherDecoder.decode("test2");
+        player.play();
+    }
+}
+""")
+
+        js_parser = JavaScriptParser()
+        res_decoder = js_parser.parse_file(decoder_file, workspace)
+        res_player = js_parser.parse_file(player_file, workspace)
+        res_caller = js_parser.parse_file(caller_file, workspace)
+
+        # Verify NodeSchema actually got local_bindings populated
+        caller_run_node = next((n for n in res_caller.nodes if n.label == "run"), None)
+        assert caller_run_node is not None
+        assert caller_run_node.local_bindings == {
+            "player": "EdgeTTSPlayer",
+            "decoder": "AudioDecoderActor",
+            "otherDecoder": "AudioDecoderActor",
+        }
+
+        # Build graph and check edges
+        G = build_graph([res_decoder, res_player, res_caller], workspace)
+
+        # Verify correct exact connections were made
+        assert G.has_edge(
+            "Caller.ts::Caller.run", "AudioDecoderActor.ts::AudioDecoderActor.decode"
+        )
+        assert G.has_edge(
+            "Caller.ts::Caller.run", "EdgeTTSPlayer.ts::EdgeTTSPlayer.play"
+        )

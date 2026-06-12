@@ -12,7 +12,9 @@ class NodeSchema(BaseModel):
     line_end: int  # 1-indexed
     signature: str  # Signature snippet
     docstring: str = ""  # Docstring or comments
-    local_bindings: dict[str, str] = {}  # Maps local variable/parameter name to its type name
+    local_bindings: dict[
+        str, str
+    ] = {}  # Maps local variable/parameter name to its type name
 
 
 class EdgeSchema(BaseModel):
