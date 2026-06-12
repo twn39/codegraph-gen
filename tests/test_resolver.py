@@ -273,3 +273,51 @@ def test_fixpoint_type_propagation(tmp_path):
     # Resolving edges should resolve the call edge from 'b.py::client' to 'a.py::HelperClass.do_work'
     resolver.resolve_all_edges()
     assert G.has_edge("b.py::client", "a.py::HelperClass.do_work")
+
+
+def test_language_strategies():
+    from codegraph_gen.resolver_strategy import (
+        get_strategy_for_file,
+        get_strategy_by_name,
+    )
+
+    # test strategy lookup by file extension
+    strategy_py = get_strategy_for_file("foo.py")
+    assert strategy_py.name == "python"
+
+    strategy_go = get_strategy_for_file("main.go")
+    assert strategy_go.name == "go"
+
+    strategy_rs = get_strategy_for_file("lib.rs")
+    assert strategy_rs.name == "rust"
+
+    # test lookup by name
+    assert get_strategy_by_name("Swift").name == "swift"
+    assert get_strategy_by_name("cpp").name == "cpp"
+
+    # test builtins
+    assert strategy_py.is_builtin("print") is True
+    assert strategy_py.is_builtin("nonexistent") is False
+    assert strategy_go.is_builtin("panic") is True
+
+    # test package sibling scope (Go and Swift have it, Python doesn't)
+    assert strategy_go.has_package_sibling_scope() is True
+    assert get_strategy_for_file("foo.swift").has_package_sibling_scope() is True
+    assert strategy_py.has_package_sibling_scope() is False
+
+    # test import path candidates
+    assert strategy_py.get_import_path_candidates("foo.bar") == [
+        "foo/bar",
+        "foo/bar.py",
+        "foo/bar/__init__.py",
+    ]
+    assert strategy_rs.get_import_path_candidates("foo::bar") == [
+        "foo/bar",
+        "foo/bar.rs",
+        "foo/bar/mod.rs",
+    ]
+
+    # test path target detection (C/C++ strategy handles .h/.hpp ends as path targets)
+    strategy_cpp = get_strategy_by_name("cpp")
+    assert strategy_py.is_path_target("myheader.h") is False
+    assert strategy_cpp.is_path_target("myheader.h") is True

@@ -3,230 +3,13 @@ from pathlib import Path
 import re
 import networkx as nx
 from codegraph_gen.parser.base import ExtractionResult
+from codegraph_gen.resolver_strategy import (
+    get_strategy_for_file,
+    get_strategy_by_name,
+    LanguageResolverStrategy,
+)
 
 logger = logging.getLogger(__name__)
-
-# Common builtin/standard library functions for languages to avoid call graph pollution
-BUILTIN_FUNCTIONS: dict[str, set[str]] = {
-    "python": {
-        "print",
-        "len",
-        "range",
-        "str",
-        "int",
-        "dict",
-        "list",
-        "set",
-        "tuple",
-        "open",
-        "sum",
-        "min",
-        "max",
-        "abs",
-        "enumerate",
-        "zip",
-        "any",
-        "all",
-        "map",
-        "filter",
-        "super",
-        "repr",
-        "type",
-        "isinstance",
-        "issubclass",
-        "dir",
-        "id",
-        "hash",
-        "input",
-    },
-    "go": {
-        "print",
-        "println",
-        "panic",
-        "recover",
-        "make",
-        "new",
-        "len",
-        "cap",
-        "append",
-        "copy",
-        "delete",
-        "complex",
-        "real",
-        "imag",
-        "close",
-    },
-    "javascript": {
-        "console",
-        "require",
-        "module",
-        "exports",
-        "process",
-        "window",
-        "document",
-        "eval",
-        "parseInt",
-        "parseFloat",
-        "isNaN",
-        "isFinite",
-        "decodeURI",
-        "encodeURI",
-        "Object",
-        "Array",
-        "String",
-        "Number",
-        "Boolean",
-        "Date",
-        "RegExp",
-        "Error",
-        "Map",
-        "Set",
-        "Promise",
-        "JSON",
-        "Math",
-        "setTimeout",
-        "clearTimeout",
-        "setInterval",
-        "clearInterval",
-    },
-    "typescript": {
-        "console",
-        "require",
-        "module",
-        "exports",
-        "process",
-        "window",
-        "document",
-        "eval",
-        "parseInt",
-        "parseFloat",
-        "isNaN",
-        "isFinite",
-        "decodeURI",
-        "encodeURI",
-        "Object",
-        "Array",
-        "String",
-        "Number",
-        "Boolean",
-        "Date",
-        "RegExp",
-        "Error",
-        "Map",
-        "Set",
-        "Promise",
-        "JSON",
-        "Math",
-        "setTimeout",
-        "clearTimeout",
-        "setInterval",
-        "clearInterval",
-    },
-    "rust": {
-        "println!",
-        "print!",
-        "format!",
-        "panic!",
-        "vec!",
-        "assert!",
-        "assert_eq!",
-        "Option",
-        "Result",
-        "Some",
-        "None",
-        "Ok",
-        "Err",
-        "Default",
-    },
-    "swift": {
-        "print",
-        "min",
-        "max",
-        "abs",
-        "count",
-        "fatalError",
-        "precondition",
-        "assert",
-    },
-    "kotlin": {
-        "print",
-        "println",
-        "listOf",
-        "mapOf",
-        "setOf",
-        "mutableListOf",
-        "mutableMapOf",
-        "mutableSetOf",
-        "arrayOf",
-        "emptyList",
-        "emptyMap",
-        "emptySet",
-        "run",
-        "let",
-        "also",
-        "apply",
-        "takeIf",
-        "takeUnless",
-        "repeat",
-        "require",
-        "check",
-        "error",
-    },
-    "c": {
-        "printf",
-        "scanf",
-        "malloc",
-        "free",
-        "calloc",
-        "realloc",
-        "memcpy",
-        "memset",
-        "strcpy",
-        "strlen",
-        "strcmp",
-        "strcat",
-        "exit",
-        "fopen",
-        "fclose",
-        "fprintf",
-        "sprintf",
-        "sizeof",
-    },
-    "cpp": {
-        "printf",
-        "scanf",
-        "malloc",
-        "free",
-        "calloc",
-        "realloc",
-        "memcpy",
-        "memset",
-        "strcpy",
-        "strlen",
-        "strcmp",
-        "strcat",
-        "exit",
-        "fopen",
-        "fclose",
-        "fprintf",
-        "sprintf",
-        "sizeof",
-        "std",
-        "cout",
-        "cin",
-        "endl",
-        "vector",
-        "string",
-        "map",
-        "set",
-        "list",
-        "shared_ptr",
-        "unique_ptr",
-        "make_shared",
-        "make_unique",
-        "move",
-    },
-}
 
 # Common builtin/standard library method names to avoid incorrect resolution during global fallback
 COMMON_BUILTIN_METHODS: set[str] = {
@@ -311,71 +94,8 @@ class FileSymbolScope:
 
 
 def extract_return_type_from_signature(signature: str, language: str) -> str | None:
-    signature = signature.strip()
-    if not signature:
-        return None
-
-    if language in ("python", "rust", "swift"):
-        match = re.search(r"->\s*([\w::.<>]+)", signature)
-        if match:
-            ret_type = match.group(1).strip()
-            generic_match = re.search(r"<([\w::.]+)>", ret_type)
-            if generic_match:
-                return generic_match.group(1).rsplit("::", 1)[-1].rsplit(".", 1)[-1]
-            return ret_type.rsplit("::", 1)[-1].rsplit(".", 1)[-1]
-
-    elif language == "kotlin":
-        last_paren = signature.rfind(")")
-        if last_paren != -1:
-            after_paren = signature[last_paren + 1 :]
-            match = re.search(r":\s*([\w<>]+)", after_paren)
-            if match:
-                ret_type = match.group(1).strip()
-                generic_match = re.search(r"<([\w]+)>", ret_type)
-                if generic_match:
-                    return generic_match.group(1)
-                return ret_type
-
-    elif language == "go":
-        last_paren = signature.rfind(")")
-        if last_paren != -1:
-            after_paren = signature[last_paren + 1 :].strip()
-            if not after_paren or after_paren == "{":
-                return None
-            if after_paren.startswith("("):
-                after_paren = after_paren[1:].split(")")[0]
-                parts = [p.strip() for p in after_paren.split(",")]
-                for p in parts:
-                    clean_p = p.split()[-1]
-                    if clean_p not in ("error", "bool", "int", "string"):
-                        return clean_p
-            else:
-                clean_p = after_paren.split("{")[0].strip().split()[-1]
-                clean_p = clean_p.lstrip("*").lstrip("[]")
-                if clean_p not in ("error", "bool", "int", "string"):
-                    return clean_p
-
-    elif language in ("c", "cpp"):
-        tokens = signature.split()
-        if tokens:
-            idx = 0
-            while idx < len(tokens) and tokens[idx] in (
-                "inline",
-                "static",
-                "virtual",
-                "friend",
-                "const",
-                "constexpr",
-            ):
-                idx += 1
-            if idx < len(tokens):
-                ret_type = tokens[idx]
-                if "(" in ret_type or ")" in ret_type:
-                    return None
-                ret_type = ret_type.replace("*", "").replace("&", "").strip()
-                return ret_type.split("::")[-1]
-
-    return None
+    strategy = get_strategy_by_name(language)
+    return strategy.extract_return_type(signature)
 
 
 class TypeResolver:
@@ -392,33 +112,20 @@ class TypeResolver:
 
         self.scopes: dict[str, FileSymbolScope] = {}
         self.file_languages: dict[str, str] = {}
+        self.file_strategies: dict[str, LanguageResolverStrategy] = {}
         self.global_symbol_map: dict[str, list[str]] = {}
         self.return_types: dict[str, str] = {}
 
         self._initialize_scopes()
 
     def _initialize_scopes(self) -> None:
-        # Detect languages
+        # Detect languages and load strategies
         for nid, data in self.G.nodes(data=True):
             if data.get("type") == "file":
-                suffix = Path(nid).suffix.lower()
-                lang = "python"
-                for lang_name, exts in {
-                    "python": {".py"},
-                    "javascript": {".js", ".mjs", ".cjs"},
-                    "typescript": {".ts", ".tsx"},
-                    "kotlin": {".kt", ".kts"},
-                    "go": {".go"},
-                    "rust": {".rs"},
-                    "swift": {".swift"},
-                    "c": {".c", ".h"},
-                    "cpp": {".cpp", ".cc", ".cxx", ".hpp", ".hxx"},
-                }.items():
-                    if suffix in exts:
-                        lang = lang_name
-                        break
-                self.file_languages[nid] = lang
-                self.scopes[nid] = FileSymbolScope(nid, lang)
+                strategy = get_strategy_for_file(nid)
+                self.file_strategies[nid] = strategy
+                self.file_languages[nid] = strategy.name
+                self.scopes[nid] = FileSymbolScope(nid, strategy.name)
 
         # Populate declared, global symbols and return types
         for nid, data in self.G.nodes(data=True):
@@ -433,9 +140,9 @@ class TypeResolver:
                 self.scopes[sf].declared_symbols[label] = nid
 
             if ntype in ("function", "method") and sf:
-                lang = self.file_languages.get(sf, "python")
+                strategy = self.file_strategies.get(sf, get_strategy_for_file(sf))
                 sig = data.get("signature", "")
-                ret = extract_return_type_from_signature(sig, lang)
+                ret = strategy.extract_return_type(sig)
                 if ret:
                     self.return_types[nid] = ret
 
@@ -447,6 +154,7 @@ class TypeResolver:
             file_id = file_node.id
             if file_id not in self.scopes:
                 continue
+            strategy = self.file_strategies.get(file_id, get_strategy_for_file(file_id))
 
             for edge in ext.edges:
                 if edge.relation == "imports":
@@ -454,7 +162,7 @@ class TypeResolver:
                         file_id, edge.target
                     )
                     if target_file_id:
-                        if self.scopes[file_id].language in ("c", "cpp"):
+                        if strategy.should_treat_import_as_wildcard(target_file_id, edge.import_map or {}):
                             self.scopes[file_id].wildcard_imports.append(target_file_id)
 
                         if edge.import_map:
@@ -478,12 +186,8 @@ class TypeResolver:
                             )
 
     def resolve_import_to_file_node(self, source_file: str, target: str) -> str | None:
-        is_path_target = target.startswith(".") or "/" in target or "\\" in target
-        if not is_path_target and self.file_languages.get(source_file) in ("c", "cpp"):
-            is_path_target = any(
-                target.endswith(ext)
-                for ext in (".h", ".hpp", ".hxx", ".c", ".cpp", ".cc", ".cxx")
-            )
+        strategy = self.file_strategies.get(source_file, get_strategy_for_file(source_file))
+        is_path_target = strategy.is_path_target(target)
 
         if is_path_target:
             source_dir = (Path(self.workspace_dir) / Path(source_file)).parent
@@ -492,7 +196,7 @@ class TypeResolver:
                 rel_path = str(resolved_path.relative_to(self.workspace_dir))
                 if rel_path in self.node_ids:
                     return rel_path
-                for suff in (".h", ".hpp", ".hxx", ".c", ".cpp", ".cc", ".cxx"):
+                for suff in strategy.import_search_suffixes:
                     check_path = rel_path + suff
                     if check_path in self.node_ids:
                         return check_path
@@ -506,47 +210,33 @@ class TypeResolver:
                         return nid
             return None
 
-        if target.startswith("."):
-            source_dir = Path(self.workspace_dir) / Path(source_file).parent
-            try:
-                resolved_path = (source_dir / target).resolve()
-                rel_path = str(resolved_path.relative_to(self.workspace_dir))
+        # Non-path targets (e.g. dot/colon namespaces or package imports)
+        candidates = strategy.get_import_path_candidates(target)
+        for cand in candidates:
+            if cand in self.node_ids:
+                return cand
+            
+            cand_normalized = cand.replace("\\", "/")
+            for nid in self.node_ids:
+                if self.G.nodes[nid]["type"] == "file":
+                    nid_normalized = nid.replace("\\", "/")
+                    if (
+                        nid_normalized == cand_normalized
+                        or nid_normalized.endswith("/" + cand_normalized)
+                        or nid_normalized.endswith("\\" + cand_normalized)
+                    ):
+                        return nid
 
-                for suff in (".py", ".ts", ".js", ".go", ".rs", ".swift"):
-                    check_path = rel_path + suff
-                    if check_path in self.node_ids:
-                        return check_path
-                    check_init = str(Path(rel_path) / f"__init__{suff}")
-                    if check_init in self.node_ids:
-                        return check_init
-                if rel_path in self.node_ids:
-                    return rel_path
-            except Exception:
-                pass
-
-        target_path_part = target.replace(".", "/")
-        for nid in self.node_ids:
-            if self.G.nodes[nid]["type"] == "file":
-                if (
-                    nid.replace("\\", "/").endswith(target_path_part)
-                    or nid.replace("\\", "/").endswith(target_path_part + ".py")
-                    or nid.replace("\\", "/").endswith(
-                        target_path_part + "/__init__.py"
-                    )
-                    or nid.replace("\\", "/").endswith(target_path_part + ".go")
-                    or nid.replace("\\", "/").endswith(target_path_part + ".rs")
-                ):
-                    return nid
         return None
 
     def _resolve_builtin(self, lang: str, main_symbol: str) -> bool:
-        return main_symbol in BUILTIN_FUNCTIONS.get(lang, set())
+        return get_strategy_by_name(lang).is_builtin(main_symbol)
 
     def _resolve_local_binding(
         self,
         caller_id: str,
         source_file: str,
-        lang: str,
+        strategy: LanguageResolverStrategy,
         scope: FileSymbolScope,
         main_symbol: str,
         parts: list[str],
@@ -566,7 +256,7 @@ class TypeResolver:
         elif receiver_type in scope.imported_symbols:
             target_file_id, original_name = scope.imported_symbols[receiver_type]
             resolved_class_id = f"{target_file_id}::{original_name}"
-        elif lang in ("go", "swift"):
+        elif strategy.has_package_sibling_scope():
             caller_dir = Path(source_file).parent
             for nid in self.node_ids:
                 ndata = self.G.nodes[nid]
@@ -798,7 +488,7 @@ class TypeResolver:
         if not caller_data:
             return None
         source_file = caller_data["source_file"]
-        lang = self.file_languages.get(source_file, "python")
+        strategy = self.file_strategies.get(source_file, get_strategy_for_file(source_file))
         callee_clean = callee_name.replace("::", ".")
         parts = [p.strip() for p in callee_clean.split(".") if p.strip()]
         if not parts:
@@ -808,7 +498,7 @@ class TypeResolver:
         rest_of_callee = callee_clean.split(".", 1)[1] if len(parts) > 1 else ""
 
         # 1. Builtins / Stdlib Check
-        if self._resolve_builtin(lang, main_symbol):
+        if strategy.is_builtin(main_symbol):
             return None
 
         scope = self.scopes.get(source_file)
@@ -819,7 +509,7 @@ class TypeResolver:
         local_bindings = caller_data.get("local_bindings", {})
         if len(parts) > 1 and main_symbol in local_bindings:
             res = self._resolve_local_binding(
-                caller_id, source_file, lang, scope, main_symbol, parts, rest_of_callee
+                caller_id, source_file, strategy, scope, main_symbol, parts, rest_of_callee
             )
             if res:
                 return res
@@ -846,7 +536,7 @@ class TypeResolver:
             return res
 
         # 6. Sibling / Package Scope (Go, Swift)
-        if lang in ("go", "swift"):
+        if strategy.has_package_sibling_scope():
             res = self._resolve_package_siblings(
                 source_file, main_symbol, parts, rest_of_callee
             )
