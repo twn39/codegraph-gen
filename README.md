@@ -25,7 +25,16 @@
 
 ## 📦 架构概览
 
-- **工作区源码 Workspace** -> **detect: 语言识别与过滤** -> **parser: Tree-Sitter AST 符号提取** -> **builder: NetworkX 语义图组装与绑定** -> **cluster: 社区模块度聚类命名** -> **analyze: 上帝节点与循环导入分析** -> **export: 导出至 .codegraph/** -> **生成 AGENT_PROMPT.md / AGENTS.md / README.md / nodes / components**
+```mermaid
+flowchart LR
+    Workspace["工作区源码 Workspace"] --> Detect["detect: 语言识别与过滤"]
+    Detect --> Parser["parser: Tree-Sitter AST 符号提取"]
+    Parser --> Builder["builder: NetworkX 语义图组装与绑定"]
+    Builder --> Cluster["cluster: 社区模块度聚类命名"]
+    Cluster --> Analyze["analyze: 上帝节点与循环导入分析"]
+    Analyze --> Export["export: 导出至 .codegraph/"]
+    Export --> Generate["生成 AGENT_PROMPT.md / AGENTS.md / README.md / nodes / components"]
+```
 
 ---
 
