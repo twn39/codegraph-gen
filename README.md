@@ -1,8 +1,8 @@
 <h1 align="center">codegraph-gen</h1>
 
 <p align="center">
-  <a href="https://github.com/astral-sh/uv"><img src="https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/uv/main/assets/badge/v0.json" alt="uv"></a>
-  <img src="https://img.shields.io/badge/python-3.12+-blue.svg" alt="Python Version">
+  <a href="https://pypi.org/project/codegraph-gen/"><img src="https://img.shields.io/pypi/v/codegraph-gen.svg" alt="PyPI Version"></a>
+  <img src="https://img.shields.io/badge/python-3.11+-blue.svg" alt="Python Version">
   <img src="https://img.shields.io/badge/code%20style-ruff-26b22f.svg" alt="Ruff">
   <img src="https://img.shields.io/badge/license-MIT-green.svg" alt="License">
 </p>
