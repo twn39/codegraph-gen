@@ -11,14 +11,17 @@ from codegraph_gen.schema import (
     ExtractionResult,
     NodeSchema,
     EdgeSchema,
+    SymbolCollector,
 )
 
 logger = logging.getLogger(__name__)
 
 
 class SwiftVisitor(ASTVisitor):
-    def __init__(self, source: bytes, rel_path: str, result: ExtractionResult, parser):
-        super().__init__(source, rel_path, result)
+    def __init__(
+        self, source: bytes, rel_path: str, collector: SymbolCollector, parser
+    ):
+        super().__init__(source, rel_path, collector)
         self.parser = parser
         self.file_node_id = rel_path
 
@@ -50,7 +53,7 @@ class SwiftVisitor(ASTVisitor):
                 sym_type = "enum"
 
             start_line, end_line = self.get_line_range(node)
-            self.result.nodes.append(
+            self.add_node(
                 NodeSchema(
                     id=class_id,
                     label=class_name,
@@ -63,7 +66,7 @@ class SwiftVisitor(ASTVisitor):
                 )
             )
 
-            self.result.edges.append(
+            self.add_edge(
                 EdgeSchema(source=parent_id, target=class_id, relation="contains")
             )
 
@@ -73,7 +76,7 @@ class SwiftVisitor(ASTVisitor):
                     for sub in child.children:
                         if sub.type == "type_identifier":
                             parent_name = self.get_text(sub)
-                            self.result.edges.append(
+                            self.add_edge(
                                 EdgeSchema(
                                     source=class_id,
                                     target=parent_name,
@@ -173,7 +176,7 @@ class SwiftVisitor(ASTVisitor):
             collect_local_bindings(node)
 
             start_line, end_line = self.get_line_range(node)
-            self.result.nodes.append(
+            self.add_node(
                 NodeSchema(
                     id=func_id,
                     label=func_name,
@@ -187,7 +190,7 @@ class SwiftVisitor(ASTVisitor):
                 )
             )
 
-            self.result.edges.append(
+            self.add_edge(
                 EdgeSchema(source=parent_id, target=func_id, relation="contains")
             )
 
@@ -203,7 +206,7 @@ class SwiftVisitor(ASTVisitor):
                 path_parts.append(self.get_text(child))
         if path_parts:
             import_path = ".".join(path_parts)
-            self.result.edges.append(
+            self.add_edge(
                 EdgeSchema(
                     source=self.file_node_id, target=import_path, relation="imports"
                 )
@@ -219,7 +222,7 @@ class SwiftVisitor(ASTVisitor):
         if func_node:
             callee_name = self.get_text(func_node)
             caller_id = self.get_current_parent_id()
-            self.result.edges.append(
+            self.add_edge(
                 EdgeSchema(source=caller_id, target=callee_name, relation="calls")
             )
         self.generic_visit(node)

@@ -2,7 +2,12 @@ from abc import ABC, abstractmethod
 import logging
 from pathlib import Path
 import tree_sitter
-from codegraph_gen.schema import NodeSchema, EdgeSchema, ExtractionResult
+from codegraph_gen.schema import (
+    NodeSchema,
+    EdgeSchema,
+    ExtractionResult,
+    SymbolCollector,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -74,12 +79,20 @@ class ScopeTracker:
 class ASTVisitor:
     """Optimized base AST Visitor for dynamic routing and AST traversal."""
 
-    def __init__(self, source: bytes, rel_path: str, result: ExtractionResult):
+    def __init__(self, source: bytes, rel_path: str, collector: SymbolCollector):
         self.source = source
         self.rel_path = rel_path
-        self.result = result
+        self.collector = collector
         self._visitor_cache = {}
         self.scope = ScopeTracker(rel_path, "file")
+
+    def add_node(self, node: NodeSchema) -> None:
+        """Helper to collect a node via the collector."""
+        self.collector.add_node(node)
+
+    def add_edge(self, edge: EdgeSchema) -> None:
+        """Helper to collect an edge via the collector."""
+        self.collector.add_edge(edge)
 
     @property
     def scope_stack(self) -> list[tuple[str, str]]:

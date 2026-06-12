@@ -10,14 +10,17 @@ from codegraph_gen.schema import (
     ExtractionResult,
     NodeSchema,
     EdgeSchema,
+    SymbolCollector,
 )
 
 logger = logging.getLogger(__name__)
 
 
 class CCppVisitor(ASTVisitor):
-    def __init__(self, source: bytes, rel_path: str, result: ExtractionResult, parser):
-        super().__init__(source, rel_path, result)
+    def __init__(
+        self, source: bytes, rel_path: str, collector: SymbolCollector, parser
+    ):
+        super().__init__(source, rel_path, collector)
         self.parser = parser
         self.file_node_id = rel_path
         self.defined_ids = {rel_path}
@@ -74,7 +77,7 @@ class CCppVisitor(ASTVisitor):
             sym_type = "namespace"
 
         start_line, end_line = self.get_line_range(node)
-        self.result.nodes.append(
+        self.add_node(
             NodeSchema(
                 id=symbol_id,
                 label=name,
@@ -88,7 +91,7 @@ class CCppVisitor(ASTVisitor):
         )
         self.defined_ids.add(symbol_id)
 
-        self.result.edges.append(
+        self.add_edge(
             EdgeSchema(source=parent_id, target=symbol_id, relation="contains")
         )
 
@@ -112,7 +115,7 @@ class CCppVisitor(ASTVisitor):
                 for sub in child.children:
                     base_name = extract_base_types(sub)
                     if base_name:
-                        self.result.edges.append(
+                        self.add_edge(
                             EdgeSchema(
                                 source=symbol_id,
                                 target=base_name,
@@ -141,7 +144,7 @@ class CCppVisitor(ASTVisitor):
                 actual_parent = (
                     class_id if class_id in self.defined_ids else self.file_node_id
                 )
-                self.result.edges.append(
+                self.add_edge(
                     EdgeSchema(
                         source=actual_parent,
                         target=method_id,
@@ -152,19 +155,19 @@ class CCppVisitor(ASTVisitor):
                 method_id = f"{parent_id}.{func_name}"
                 sym_type = "method" if parent_type != "namespace" else "function"
                 func_label = func_name
-                self.result.edges.append(
+                self.add_edge(
                     EdgeSchema(source=parent_id, target=method_id, relation="contains")
                 )
             else:
                 method_id = f"{self.rel_path}::{func_name}"
                 sym_type = "function"
                 func_label = func_name
-                self.result.edges.append(
+                self.add_edge(
                     EdgeSchema(source=parent_id, target=method_id, relation="contains")
                 )
 
             start_line, end_line = self.get_line_range(node)
-            self.result.nodes.append(
+            self.add_node(
                 NodeSchema(
                     id=method_id,
                     label=func_label,
@@ -192,7 +195,7 @@ class CCppVisitor(ASTVisitor):
                     break
         if path_node:
             include_path = self.get_text(path_node).strip('"<>')
-            self.result.edges.append(
+            self.add_edge(
                 EdgeSchema(
                     source=self.file_node_id, target=include_path, relation="imports"
                 )
@@ -204,7 +207,7 @@ class CCppVisitor(ASTVisitor):
         if func_node:
             callee_name = self.get_text(func_node)
             caller_id = self.get_current_parent_id()
-            self.result.edges.append(
+            self.add_edge(
                 EdgeSchema(source=caller_id, target=callee_name, relation="calls")
             )
         self.generic_visit(node)

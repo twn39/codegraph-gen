@@ -12,14 +12,17 @@ from codegraph_gen.schema import (
     ExtractionResult,
     NodeSchema,
     EdgeSchema,
+    SymbolCollector,
 )
 
 logger = logging.getLogger(__name__)
 
 
 class JavaScriptVisitor(ASTVisitor):
-    def __init__(self, source: bytes, rel_path: str, result: ExtractionResult, parser):
-        super().__init__(source, rel_path, result)
+    def __init__(
+        self, source: bytes, rel_path: str, collector: SymbolCollector, parser
+    ):
+        super().__init__(source, rel_path, collector)
         self.parser = parser
         self.file_node_id = rel_path
 
@@ -38,7 +41,7 @@ class JavaScriptVisitor(ASTVisitor):
             sym_type = "class" if node_type == "class_declaration" else "interface"
 
             start_line, end_line = self.get_line_range(node)
-            self.result.nodes.append(
+            self.add_node(
                 NodeSchema(
                     id=class_id,
                     label=class_name,
@@ -51,7 +54,7 @@ class JavaScriptVisitor(ASTVisitor):
                 )
             )
 
-            self.result.edges.append(
+            self.add_edge(
                 EdgeSchema(source=parent_id, target=class_id, relation="contains")
             )
 
@@ -61,7 +64,7 @@ class JavaScriptVisitor(ASTVisitor):
                     for sub in child.children:
                         if sub.type in ("identifier", "nested_identifier"):
                             parent_class_name = self.get_text(sub)
-                            self.result.edges.append(
+                            self.add_edge(
                                 EdgeSchema(
                                     source=class_id,
                                     target=parent_class_name,
@@ -166,7 +169,7 @@ class JavaScriptVisitor(ASTVisitor):
             collect_local_bindings(node)
 
             start_line, end_line = self.get_line_range(node)
-            self.result.nodes.append(
+            self.add_node(
                 NodeSchema(
                     id=func_id,
                     label=func_name,
@@ -180,7 +183,7 @@ class JavaScriptVisitor(ASTVisitor):
                 )
             )
 
-            self.result.edges.append(
+            self.add_edge(
                 EdgeSchema(source=parent_id, target=func_id, relation="contains")
             )
 
@@ -224,7 +227,7 @@ class JavaScriptVisitor(ASTVisitor):
                                     name = self.get_text(name_node)
                                     import_map[name] = name
 
-            self.result.edges.append(
+            self.add_edge(
                 EdgeSchema(
                     source=self.file_node_id,
                     target=import_path,
@@ -239,7 +242,7 @@ class JavaScriptVisitor(ASTVisitor):
         if func_node:
             callee_name = self.get_text(func_node)
             caller_id = self.get_current_parent_id()
-            self.result.edges.append(
+            self.add_edge(
                 EdgeSchema(source=caller_id, target=callee_name, relation="calls")
             )
         self.generic_visit(node)
@@ -249,7 +252,7 @@ class JavaScriptVisitor(ASTVisitor):
         if func_node:
             callee_name = self.get_text(func_node)
             caller_id = self.get_current_parent_id()
-            self.result.edges.append(
+            self.add_edge(
                 EdgeSchema(source=caller_id, target=callee_name, relation="calls")
             )
         self.generic_visit(node)

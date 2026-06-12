@@ -2,6 +2,7 @@ import re
 from abc import ABC, abstractmethod
 from pathlib import Path
 
+
 class LanguageResolverStrategy(ABC):
     @property
     @abstractmethod
@@ -35,7 +36,9 @@ class LanguageResolverStrategy(ABC):
     def is_path_target(self, target: str) -> bool:
         return target.startswith(".") or "/" in target or "\\" in target
 
-    def should_treat_import_as_wildcard(self, target_file_id: str, import_map: dict[str, str]) -> bool:
+    def should_treat_import_as_wildcard(
+        self, target_file_id: str, import_map: dict[str, str]
+    ) -> bool:
         return "*" in import_map.values()
 
     def get_import_path_candidates(self, target: str) -> list[str]:
@@ -63,10 +66,35 @@ class PythonStrategy(LanguageResolverStrategy):
     file_extensions = {".py"}
     import_search_suffixes = [".py"]
     builtin_functions = {
-        "print", "len", "range", "str", "int", "dict", "list", "set", "tuple",
-        "open", "sum", "min", "max", "abs", "enumerate", "zip", "any", "all",
-        "map", "filter", "super", "repr", "type", "isinstance", "issubclass",
-        "dir", "id", "hash", "input"
+        "print",
+        "len",
+        "range",
+        "str",
+        "int",
+        "dict",
+        "list",
+        "set",
+        "tuple",
+        "open",
+        "sum",
+        "min",
+        "max",
+        "abs",
+        "enumerate",
+        "zip",
+        "any",
+        "all",
+        "map",
+        "filter",
+        "super",
+        "repr",
+        "type",
+        "isinstance",
+        "issubclass",
+        "dir",
+        "id",
+        "hash",
+        "input",
     }
 
     def extract_return_type(self, signature: str) -> str | None:
@@ -86,11 +114,37 @@ class JavaScriptStrategy(LanguageResolverStrategy):
     file_extensions = {".js", ".mjs", ".cjs"}
     import_search_suffixes = [".js", ".mjs", ".cjs"]
     builtin_functions = {
-        "console", "require", "module", "exports", "process", "window",
-        "document", "eval", "parseInt", "parseFloat", "isNaN", "isFinite",
-        "decodeURI", "encodeURI", "Object", "Array", "String", "Number",
-        "Boolean", "Date", "RegExp", "Error", "Map", "Set", "Promise",
-        "JSON", "Math", "setTimeout", "clearTimeout", "setInterval", "clearInterval"
+        "console",
+        "require",
+        "module",
+        "exports",
+        "process",
+        "window",
+        "document",
+        "eval",
+        "parseInt",
+        "parseFloat",
+        "isNaN",
+        "isFinite",
+        "decodeURI",
+        "encodeURI",
+        "Object",
+        "Array",
+        "String",
+        "Number",
+        "Boolean",
+        "Date",
+        "RegExp",
+        "Error",
+        "Map",
+        "Set",
+        "Promise",
+        "JSON",
+        "Math",
+        "setTimeout",
+        "clearTimeout",
+        "setInterval",
+        "clearInterval",
     }
 
 
@@ -105,10 +159,28 @@ class KotlinStrategy(LanguageResolverStrategy):
     file_extensions = {".kt", ".kts"}
     import_search_suffixes = [".kt", ".kts"]
     builtin_functions = {
-        "print", "println", "listOf", "mapOf", "setOf", "mutableListOf",
-        "mutableMapOf", "mutableSetOf", "arrayOf", "emptyList", "emptyMap",
-        "emptySet", "run", "let", "also", "apply", "takeIf", "takeUnless",
-        "repeat", "require", "check", "error"
+        "print",
+        "println",
+        "listOf",
+        "mapOf",
+        "setOf",
+        "mutableListOf",
+        "mutableMapOf",
+        "mutableSetOf",
+        "arrayOf",
+        "emptyList",
+        "emptyMap",
+        "emptySet",
+        "run",
+        "let",
+        "also",
+        "apply",
+        "takeIf",
+        "takeUnless",
+        "repeat",
+        "require",
+        "check",
+        "error",
     }
 
     def extract_return_type(self, signature: str) -> str | None:
@@ -130,8 +202,21 @@ class GoStrategy(LanguageResolverStrategy):
     file_extensions = {".go"}
     import_search_suffixes = [".go"]
     builtin_functions = {
-        "print", "println", "panic", "recover", "make", "new", "len", "cap",
-        "append", "copy", "delete", "complex", "real", "imag", "close"
+        "print",
+        "println",
+        "panic",
+        "recover",
+        "make",
+        "new",
+        "len",
+        "cap",
+        "append",
+        "copy",
+        "delete",
+        "complex",
+        "real",
+        "imag",
+        "close",
     }
 
     def has_package_sibling_scope(self) -> bool:
@@ -163,9 +248,20 @@ class RustStrategy(LanguageResolverStrategy):
     file_extensions = {".rs"}
     import_search_suffixes = [".rs"]
     builtin_functions = {
-        "println!", "print!", "format!", "panic!", "vec!", "assert!",
-        "assert_eq!", "Option", "Result", "Some", "None", "Ok", "Err",
-        "Default"
+        "println!",
+        "print!",
+        "format!",
+        "panic!",
+        "vec!",
+        "assert!",
+        "assert_eq!",
+        "Option",
+        "Result",
+        "Some",
+        "None",
+        "Ok",
+        "Err",
+        "Default",
     }
 
     def extract_return_type(self, signature: str) -> str | None:
@@ -185,8 +281,14 @@ class SwiftStrategy(LanguageResolverStrategy):
     file_extensions = {".swift"}
     import_search_suffixes = [".swift"]
     builtin_functions = {
-        "print", "min", "max", "abs", "count", "fatalError", "precondition",
-        "assert"
+        "print",
+        "min",
+        "max",
+        "abs",
+        "count",
+        "fatalError",
+        "precondition",
+        "assert",
     }
 
     def has_package_sibling_scope(self) -> bool:
@@ -201,9 +303,24 @@ class CStrategy(LanguageResolverStrategy):
     file_extensions = {".c", ".h"}
     import_search_suffixes = [".h", ".hpp", ".hxx", ".c", ".cpp", ".cc", ".cxx"]
     builtin_functions = {
-        "printf", "scanf", "malloc", "free", "calloc", "realloc", "memcpy",
-        "memset", "strcpy", "strlen", "strcmp", "strcat", "exit", "fopen",
-        "fclose", "fprintf", "sprintf", "sizeof"
+        "printf",
+        "scanf",
+        "malloc",
+        "free",
+        "calloc",
+        "realloc",
+        "memcpy",
+        "memset",
+        "strcpy",
+        "strlen",
+        "strcmp",
+        "strcat",
+        "exit",
+        "fopen",
+        "fclose",
+        "fprintf",
+        "sprintf",
+        "sizeof",
     }
 
     def is_path_target(self, target: str) -> bool:
@@ -214,7 +331,9 @@ class CStrategy(LanguageResolverStrategy):
             for ext in (".h", ".hpp", ".hxx", ".c", ".cpp", ".cc", ".cxx")
         )
 
-    def should_treat_import_as_wildcard(self, target_file_id: str, import_map: dict[str, str]) -> bool:
+    def should_treat_import_as_wildcard(
+        self, target_file_id: str, import_map: dict[str, str]
+    ) -> bool:
         return True
 
     def extract_return_type(self, signature: str) -> str | None:
@@ -243,8 +362,20 @@ class CppStrategy(CStrategy):
     name = "cpp"
     file_extensions = {".cpp", ".cc", ".cxx", ".hpp", ".hxx"}
     builtin_functions = CStrategy.builtin_functions | {
-        "std", "cout", "cin", "endl", "vector", "string", "map", "set",
-        "list", "shared_ptr", "unique_ptr", "make_shared", "make_unique", "move"
+        "std",
+        "cout",
+        "cin",
+        "endl",
+        "vector",
+        "string",
+        "map",
+        "set",
+        "list",
+        "shared_ptr",
+        "unique_ptr",
+        "make_shared",
+        "make_unique",
+        "move",
     }
 
 

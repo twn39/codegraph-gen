@@ -1,6 +1,5 @@
 import logging
 from pathlib import Path
-import re
 import networkx as nx
 from codegraph_gen.schema import ExtractionResult
 from codegraph_gen.resolver_strategy import (
@@ -162,7 +161,9 @@ class TypeResolver:
                         file_id, edge.target
                     )
                     if target_file_id:
-                        if strategy.should_treat_import_as_wildcard(target_file_id, edge.import_map or {}):
+                        if strategy.should_treat_import_as_wildcard(
+                            target_file_id, edge.import_map or {}
+                        ):
                             self.scopes[file_id].wildcard_imports.append(target_file_id)
 
                         if edge.import_map:
@@ -186,7 +187,9 @@ class TypeResolver:
                             )
 
     def resolve_import_to_file_node(self, source_file: str, target: str) -> str | None:
-        strategy = self.file_strategies.get(source_file, get_strategy_for_file(source_file))
+        strategy = self.file_strategies.get(
+            source_file, get_strategy_for_file(source_file)
+        )
         is_path_target = strategy.is_path_target(target)
 
         if is_path_target:
@@ -215,7 +218,7 @@ class TypeResolver:
         for cand in candidates:
             if cand in self.node_ids:
                 return cand
-            
+
             cand_normalized = cand.replace("\\", "/")
             for nid in self.node_ids:
                 if self.G.nodes[nid]["type"] == "file":
@@ -488,7 +491,9 @@ class TypeResolver:
         if not caller_data:
             return None
         source_file = caller_data["source_file"]
-        strategy = self.file_strategies.get(source_file, get_strategy_for_file(source_file))
+        strategy = self.file_strategies.get(
+            source_file, get_strategy_for_file(source_file)
+        )
         callee_clean = callee_name.replace("::", ".")
         parts = [p.strip() for p in callee_clean.split(".") if p.strip()]
         if not parts:
@@ -509,7 +514,13 @@ class TypeResolver:
         local_bindings = caller_data.get("local_bindings", {})
         if len(parts) > 1 and main_symbol in local_bindings:
             res = self._resolve_local_binding(
-                caller_id, source_file, strategy, scope, main_symbol, parts, rest_of_callee
+                caller_id,
+                source_file,
+                strategy,
+                scope,
+                main_symbol,
+                parts,
+                rest_of_callee,
             )
             if res:
                 return res

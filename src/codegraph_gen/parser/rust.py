@@ -11,14 +11,17 @@ from codegraph_gen.schema import (
     ExtractionResult,
     NodeSchema,
     EdgeSchema,
+    SymbolCollector,
 )
 
 logger = logging.getLogger(__name__)
 
 
 class RustVisitor(ASTVisitor):
-    def __init__(self, source: bytes, rel_path: str, result: ExtractionResult, parser):
-        super().__init__(source, rel_path, result)
+    def __init__(
+        self, source: bytes, rel_path: str, collector: SymbolCollector, parser
+    ):
+        super().__init__(source, rel_path, collector)
         self.parser = parser
         self.file_node_id = rel_path
         self.current_impl_type = None
@@ -45,7 +48,7 @@ class RustVisitor(ASTVisitor):
             item_id = f"{self.rel_path}::{item_name}"
 
             start_line, end_line = self.get_line_range(node)
-            self.result.nodes.append(
+            self.add_node(
                 NodeSchema(
                     id=item_id,
                     label=item_name,
@@ -58,7 +61,7 @@ class RustVisitor(ASTVisitor):
                 )
             )
 
-            self.result.edges.append(
+            self.add_edge(
                 EdgeSchema(
                     source=self.file_node_id, target=item_id, relation="contains"
                 )
@@ -75,7 +78,7 @@ class RustVisitor(ASTVisitor):
             trait_node = node.child_by_field_name("trait")
             if trait_node:
                 trait_name = self.get_text(trait_node)
-                self.result.edges.append(
+                self.add_edge(
                     EdgeSchema(source=type_id, target=trait_name, relation="implements")
                 )
 
@@ -199,7 +202,7 @@ class RustVisitor(ASTVisitor):
             collect_local_bindings(node)
 
             start_line, end_line = self.get_line_range(node)
-            self.result.nodes.append(
+            self.add_node(
                 NodeSchema(
                     id=func_id,
                     label=func_name,
@@ -213,7 +216,7 @@ class RustVisitor(ASTVisitor):
                 )
             )
 
-            self.result.edges.append(
+            self.add_edge(
                 EdgeSchema(source=parent_id, target=func_id, relation=relation)
             )
         self.generic_visit(node)
@@ -259,7 +262,7 @@ class RustVisitor(ASTVisitor):
                             f"{full_path}::{sub_path}" if full_path else sub_path
                         )
                         last_symbol = item_path.split("::")[-1]
-                        self.result.edges.append(
+                        self.add_edge(
                             EdgeSchema(
                                 source=self.file_node_id,
                                 target=item_path,
@@ -269,7 +272,7 @@ class RustVisitor(ASTVisitor):
                         )
                 else:
                     last_symbol = full_path.split("::")[-1]
-                    self.result.edges.append(
+                    self.add_edge(
                         EdgeSchema(
                             source=self.file_node_id,
                             target=full_path,
@@ -286,7 +289,7 @@ class RustVisitor(ASTVisitor):
                     alias_name = self.get_text(alias_node)
                     full_path = f"{prefix}::{path_name}" if prefix else path_name
                     last_symbol = full_path.split("::")[-1]
-                    self.result.edges.append(
+                    self.add_edge(
                         EdgeSchema(
                             source=self.file_node_id,
                             target=full_path,
@@ -298,7 +301,7 @@ class RustVisitor(ASTVisitor):
                 name = self.get_text(n)
                 full_path = f"{prefix}::{name}" if prefix else name
                 last_symbol = full_path.split("::")[-1]
-                self.result.edges.append(
+                self.add_edge(
                     EdgeSchema(
                         source=self.file_node_id,
                         target=full_path,
@@ -309,7 +312,7 @@ class RustVisitor(ASTVisitor):
             elif n.type == "self_literal":
                 full_path = prefix
                 last_symbol = full_path.split("::")[-1] if full_path else "self"
-                self.result.edges.append(
+                self.add_edge(
                     EdgeSchema(
                         source=self.file_node_id,
                         target=full_path,
@@ -371,7 +374,7 @@ class RustVisitor(ASTVisitor):
                     break
                 curr = curr.parent
 
-            self.result.edges.append(
+            self.add_edge(
                 EdgeSchema(source=caller_id, target=callee_name, relation="calls")
             )
         self.generic_visit(node)

@@ -11,14 +11,17 @@ from codegraph_gen.schema import (
     ExtractionResult,
     NodeSchema,
     EdgeSchema,
+    SymbolCollector,
 )
 
 logger = logging.getLogger(__name__)
 
 
 class KotlinVisitor(ASTVisitor):
-    def __init__(self, source: bytes, rel_path: str, result: ExtractionResult, parser):
-        super().__init__(source, rel_path, result)
+    def __init__(
+        self, source: bytes, rel_path: str, collector: SymbolCollector, parser
+    ):
+        super().__init__(source, rel_path, collector)
         self.parser = parser
         self.file_node_id = rel_path
 
@@ -42,7 +45,7 @@ class KotlinVisitor(ASTVisitor):
                 sym_type = "class"
 
             start_line, end_line = self.get_line_range(node)
-            self.result.nodes.append(
+            self.add_node(
                 NodeSchema(
                     id=class_id,
                     label=class_name,
@@ -55,7 +58,7 @@ class KotlinVisitor(ASTVisitor):
                 )
             )
 
-            self.result.edges.append(
+            self.add_edge(
                 EdgeSchema(source=parent_id, target=class_id, relation="contains")
             )
 
@@ -86,7 +89,7 @@ class KotlinVisitor(ASTVisitor):
                                 )
                                 if id_node:
                                     parent_name = self.get_text(id_node)
-                                    self.result.edges.append(
+                                    self.add_edge(
                                         EdgeSchema(
                                             source=class_id,
                                             target=parent_name,
@@ -189,7 +192,7 @@ class KotlinVisitor(ASTVisitor):
             collect_local_bindings(node)
 
             start_line, end_line = self.get_line_range(node)
-            self.result.nodes.append(
+            self.add_node(
                 NodeSchema(
                     id=func_id,
                     label=func_name,
@@ -203,7 +206,7 @@ class KotlinVisitor(ASTVisitor):
                 )
             )
 
-            self.result.edges.append(
+            self.add_edge(
                 EdgeSchema(source=parent_id, target=func_id, relation="contains")
             )
 
@@ -238,7 +241,7 @@ class KotlinVisitor(ASTVisitor):
                 last_part = target.split(".")[-1]
                 import_map = {last_part: last_part}
 
-            self.result.edges.append(
+            self.add_edge(
                 EdgeSchema(
                     source=self.file_node_id,
                     target=target,
@@ -257,7 +260,7 @@ class KotlinVisitor(ASTVisitor):
         if func_node:
             callee_name = self.get_text(func_node)
             caller_id = self.get_current_parent_id()
-            self.result.edges.append(
+            self.add_edge(
                 EdgeSchema(source=caller_id, target=callee_name, relation="calls")
             )
         self.generic_visit(node)

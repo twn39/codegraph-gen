@@ -11,14 +11,17 @@ from codegraph_gen.schema import (
     ExtractionResult,
     NodeSchema,
     EdgeSchema,
+    SymbolCollector,
 )
 
 logger = logging.getLogger(__name__)
 
 
 class PythonVisitor(ASTVisitor):
-    def __init__(self, source: bytes, rel_path: str, result: ExtractionResult, parser):
-        super().__init__(source, rel_path, result)
+    def __init__(
+        self, source: bytes, rel_path: str, collector: SymbolCollector, parser
+    ):
+        super().__init__(source, rel_path, collector)
         self.parser = parser
 
     def visit_class_definition(self, node: tree_sitter.Node) -> None:
@@ -29,7 +32,7 @@ class PythonVisitor(ASTVisitor):
             class_id = f"{self.rel_path}::{class_name}"
 
             start_line, end_line = self.get_line_range(node)
-            self.result.nodes.append(
+            self.add_node(
                 NodeSchema(
                     id=class_id,
                     label=class_name,
@@ -42,7 +45,7 @@ class PythonVisitor(ASTVisitor):
                 )
             )
 
-            self.result.edges.append(
+            self.add_edge(
                 EdgeSchema(source=parent_id, target=class_id, relation="contains")
             )
 
@@ -52,7 +55,7 @@ class PythonVisitor(ASTVisitor):
                 for child in superclasses.children:
                     if child.type in ("identifier", "attribute"):
                         parent_class_name = self.get_text(child)
-                        self.result.edges.append(
+                        self.add_edge(
                             EdgeSchema(
                                 source=class_id,
                                 target=parent_class_name,
@@ -156,7 +159,7 @@ class PythonVisitor(ASTVisitor):
             collect_local_bindings(node)
 
             start_line, end_line = self.get_line_range(node)
-            self.result.nodes.append(
+            self.add_node(
                 NodeSchema(
                     id=func_id,
                     label=func_name,
@@ -170,7 +173,7 @@ class PythonVisitor(ASTVisitor):
                 )
             )
 
-            self.result.edges.append(
+            self.add_edge(
                 EdgeSchema(source=parent_id, target=func_id, relation="contains")
             )
 
@@ -184,7 +187,7 @@ class PythonVisitor(ASTVisitor):
         for child in node.children:
             if child.type == "dotted_name":
                 module_name = self.get_text(child)
-                self.result.edges.append(
+                self.add_edge(
                     EdgeSchema(
                         source=file_node_id,
                         target=module_name,
@@ -198,7 +201,7 @@ class PythonVisitor(ASTVisitor):
                 if name_node and alias_node:
                     module_name = self.get_text(name_node)
                     alias_name = self.get_text(alias_node)
-                    self.result.edges.append(
+                    self.add_edge(
                         EdgeSchema(
                             source=file_node_id,
                             target=module_name,
@@ -265,7 +268,7 @@ class PythonVisitor(ASTVisitor):
                     import_map[alias] = name
 
         if target_module:
-            self.result.edges.append(
+            self.add_edge(
                 EdgeSchema(
                     source=file_node_id,
                     target=target_module,
@@ -280,7 +283,7 @@ class PythonVisitor(ASTVisitor):
         if func_node:
             callee_name = self.get_text(func_node)
             caller_id = self.get_current_parent_id()
-            self.result.edges.append(
+            self.add_edge(
                 EdgeSchema(source=caller_id, target=callee_name, relation="calls")
             )
         self.generic_visit(node)

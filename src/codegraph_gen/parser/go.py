@@ -11,14 +11,17 @@ from codegraph_gen.schema import (
     ExtractionResult,
     NodeSchema,
     EdgeSchema,
+    SymbolCollector,
 )
 
 logger = logging.getLogger(__name__)
 
 
 class GoVisitor(ASTVisitor):
-    def __init__(self, source: bytes, rel_path: str, result: ExtractionResult, parser):
-        super().__init__(source, rel_path, result)
+    def __init__(
+        self, source: bytes, rel_path: str, collector: SymbolCollector, parser
+    ):
+        super().__init__(source, rel_path, collector)
         self.parser = parser
         self.file_node_id = rel_path
 
@@ -48,7 +51,7 @@ class GoVisitor(ASTVisitor):
                             break
 
                     start_line, end_line = self.get_line_range(child)
-                    self.result.nodes.append(
+                    self.add_node(
                         NodeSchema(
                             id=type_id,
                             label=type_name,
@@ -61,7 +64,7 @@ class GoVisitor(ASTVisitor):
                         )
                     )
 
-                    self.result.edges.append(
+                    self.add_edge(
                         EdgeSchema(
                             source=self.file_node_id,
                             target=type_id,
@@ -77,7 +80,7 @@ class GoVisitor(ASTVisitor):
             func_id = f"{self.rel_path}::{func_name}"
 
             start_line, end_line = self.get_line_range(node)
-            self.result.nodes.append(
+            self.add_node(
                 NodeSchema(
                     id=func_id,
                     label=func_name,
@@ -90,7 +93,7 @@ class GoVisitor(ASTVisitor):
                 )
             )
 
-            self.result.edges.append(
+            self.add_edge(
                 EdgeSchema(
                     source=self.file_node_id, target=func_id, relation="contains"
                 )
@@ -113,7 +116,7 @@ class GoVisitor(ASTVisitor):
                 relation = "contains"
 
             start_line, end_line = self.get_line_range(node)
-            self.result.nodes.append(
+            self.add_node(
                 NodeSchema(
                     id=method_id,
                     label=method_name,
@@ -126,7 +129,7 @@ class GoVisitor(ASTVisitor):
                 )
             )
 
-            self.result.edges.append(
+            self.add_edge(
                 EdgeSchema(source=parent_id, target=method_id, relation=relation)
             )
         self.generic_visit(node)
@@ -148,7 +151,7 @@ class GoVisitor(ASTVisitor):
             else:
                 import_map[pkg_name] = pkg_name
 
-            self.result.edges.append(
+            self.add_edge(
                 EdgeSchema(
                     source=self.file_node_id,
                     target=import_path,
@@ -180,7 +183,7 @@ class GoVisitor(ASTVisitor):
                     break
                 curr = curr.parent
 
-            self.result.edges.append(
+            self.add_edge(
                 EdgeSchema(source=caller_id, target=callee_name, relation="calls")
             )
         self.generic_visit(node)

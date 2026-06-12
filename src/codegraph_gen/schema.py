@@ -1,4 +1,6 @@
+from typing import Protocol
 from pydantic import BaseModel
+
 
 class NodeSchema(BaseModel):
     id: str  # Unique identifier, e.g. "relative_path::symbol_name"
@@ -21,6 +23,22 @@ class EdgeSchema(BaseModel):
     import_map: dict[str, str] = {}  # Maps local name to original symbol name
 
 
+class SymbolCollector(Protocol):
+    def add_node(self, node: NodeSchema) -> None:
+        """Collects an extracted node schema."""
+        ...
+
+    def add_edge(self, edge: EdgeSchema) -> None:
+        """Collects an extracted edge schema."""
+        ...
+
+
 class ExtractionResult(BaseModel):
     nodes: list[NodeSchema] = []
     edges: list[EdgeSchema] = []
+
+    def add_node(self, node: NodeSchema) -> None:
+        self.nodes.append(node)
+
+    def add_edge(self, edge: EdgeSchema) -> None:
+        self.edges.append(edge)
