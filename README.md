@@ -15,7 +15,7 @@
 
 ## 🚀 核心特性
 
-- **多语言 AST 解析**：基于 `tree-sitter`，原生支持 **Python, JavaScript, TypeScript, Kotlin, Go, Rust, Swift**。
+- **多语言 AST 解析**：基于 `tree-sitter`，原生支持 **Python, JavaScript, TypeScript, Kotlin, Go, Rust, Swift, C, C++**。
 - **语义边解析与绑定**：静态解析跨文件的函数/方法调用（`calls`）、类型继承/接口实现（`inherits`/`implements`）以及文件导入关系（`imports`）。
 - **逻辑组件自动聚类**：利用贪心模块度社区发现算法（Louvain Modularity Clustering）将紧密耦合的文件和符号自动聚类为 **Component（逻辑组件）**，并根据组件核心节点智能命名。
 - **架构脆弱性分析**：自动识别 **God Nodes（度数最高的核心抽象）**，并静态检测文件级别的 **循环导入依赖（Circular Imports）**。

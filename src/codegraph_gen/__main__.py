@@ -299,7 +299,7 @@ def info():
         ver = "1.1.0"
     console.print(f"[bold]codegraph v{ver}[/bold]")
     console.print(
-        "Supported languages: Python, JavaScript, TypeScript, Kotlin, Go, Rust, Swift"
+        "Supported languages: Python, JavaScript, TypeScript, Kotlin, Go, Rust, Swift, C, C++"
     )
 
 
