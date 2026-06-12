@@ -296,7 +296,7 @@ def info():
 
         ver = version("codegraph-gen")
     except Exception:
-        ver = "1.0.0"
+        ver = "1.1.0"
     console.print(f"[bold]codegraph v{ver}[/bold]")
     console.print(
         "Supported languages: Python, JavaScript, TypeScript, Kotlin, Go, Rust, Swift"
