@@ -1,11 +1,11 @@
-from codegraph.parser.base import BaseParser
-from codegraph.parser.python import PythonParser
-from codegraph.parser.javascript import JavaScriptParser
-from codegraph.parser.go import GoParser
-from codegraph.parser.rust import RustParser
-from codegraph.parser.swift import SwiftParser
-from codegraph.parser.cpp import CParser, CppParser
-from codegraph.parser.kotlin import KotlinParser
+from codegraph_gen.parser.base import BaseParser
+from codegraph_gen.parser.python import PythonParser
+from codegraph_gen.parser.javascript import JavaScriptParser
+from codegraph_gen.parser.go import GoParser
+from codegraph_gen.parser.rust import RustParser
+from codegraph_gen.parser.swift import SwiftParser
+from codegraph_gen.parser.cpp import CParser, CppParser
+from codegraph_gen.parser.kotlin import KotlinParser
 
 PARSERS: dict[str, type[BaseParser]] = {
     "python": PythonParser,

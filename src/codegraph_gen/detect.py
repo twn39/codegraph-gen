@@ -1,6 +1,6 @@
 import logging
 from pathlib import Path
-from codegraph.config import CodegraphConfig, LANGUAGE_EXTENSIONS
+from codegraph_gen.config import CodegraphConfig, LANGUAGE_EXTENSIONS
 
 logger = logging.getLogger(__name__)
 

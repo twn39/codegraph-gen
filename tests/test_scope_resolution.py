@@ -1,9 +1,9 @@
 import tempfile
 from pathlib import Path
 
-from codegraph.parser.python import PythonParser
-from codegraph.parser.go import GoParser
-from codegraph.builder import build_graph
+from codegraph_gen.parser.python import PythonParser
+from codegraph_gen.parser.go import GoParser
+from codegraph_gen.builder import build_graph
 
 
 def test_name_isolation_and_aliases():
@@ -185,7 +185,7 @@ def run():
 
 
 def test_swift_local_scope_type_binding():
-    from codegraph.parser.swift import SwiftParser
+    from codegraph_gen.parser.swift import SwiftParser
 
     with tempfile.TemporaryDirectory() as tmpdir:
         workspace = Path(tmpdir).resolve()
@@ -245,7 +245,7 @@ class Caller {
 
 
 def test_python_local_scope_type_binding():
-    from codegraph.parser.python import PythonParser
+    from codegraph_gen.parser.python import PythonParser
 
     with tempfile.TemporaryDirectory() as tmpdir:
         workspace = Path(tmpdir).resolve()
@@ -301,7 +301,7 @@ def run(img_param: HeifImage):
 
 
 def test_external_type_method_fallback_bypass():
-    from codegraph.parser.rust import RustParser
+    from codegraph_gen.parser.rust import RustParser
 
     with tempfile.TemporaryDirectory() as tmpdir:
         workspace = Path(tmpdir).resolve()
@@ -338,7 +338,7 @@ fn run() {
 
 
 def test_typescript_local_scope_type_binding():
-    from codegraph.parser.javascript import JavaScriptParser
+    from codegraph_gen.parser.javascript import JavaScriptParser
 
     with tempfile.TemporaryDirectory() as tmpdir:
         workspace = Path(tmpdir).resolve()
@@ -400,7 +400,7 @@ class Caller {
 
 
 def test_kotlin_local_scope_type_binding():
-    from codegraph.parser.kotlin import KotlinParser
+    from codegraph_gen.parser.kotlin import KotlinParser
     with tempfile.TemporaryDirectory() as tmpdir:
         workspace = Path(tmpdir).resolve()
 

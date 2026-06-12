@@ -2,11 +2,11 @@ import tempfile
 from pathlib import Path
 import networkx as nx
 
-from codegraph.config import CodegraphConfig
-from codegraph.detect import discover_files
-from codegraph.parser.python import PythonParser
-from codegraph.builder import build_graph
-from codegraph.cluster import detect_components
+from codegraph_gen.config import CodegraphConfig
+from codegraph_gen.detect import discover_files
+from codegraph_gen.parser.python import PythonParser
+from codegraph_gen.builder import build_graph
+from codegraph_gen.cluster import detect_components
 
 
 def test_config():
@@ -208,13 +208,13 @@ def test_clustering_and_exporter():
         assert len(components) > 0
 
         # Export using new decoupled classes
-        from codegraph.analyzer import analyze_graph
-        from codegraph.renderer import (
+        from codegraph_gen.analyzer import analyze_graph
+        from codegraph_gen.renderer import (
             MarkdownRenderer,
             get_node_filename,
             get_component_filename,
         )
-        from codegraph.writer import VaultWriter
+        from codegraph_gen.writer import VaultWriter
 
         analysis = analyze_graph(G, components)
         renderer = MarkdownRenderer(workspace)
@@ -322,7 +322,7 @@ def duplicate_func():
 """)
 
         # Parse files using PythonParser
-        from codegraph.parser.python import PythonParser
+        from codegraph_gen.parser.python import PythonParser
 
         parser = PythonParser()
         res_a = parser.parse_file(file_a, workspace)
@@ -350,8 +350,8 @@ def duplicate_func():
 
 
 def test_engine_pipeline_and_callbacks():
-    from codegraph.engine import CodegraphEngine, PipelineStage
-    from codegraph.config import CodegraphConfig
+    from codegraph_gen.engine import CodegraphEngine, PipelineStage
+    from codegraph_gen.config import CodegraphConfig
 
     with tempfile.TemporaryDirectory() as tmpdir:
         workspace = Path(tmpdir).resolve()
@@ -388,7 +388,7 @@ def test_engine_pipeline_and_callbacks():
 
 
 def test_weighted_louvain_containment():
-    from codegraph.cluster import detect_components
+    from codegraph_gen.cluster import detect_components
 
     # Construct a graph that would normally pull a symbol away under unweighted clustering:
     # file_a contains func_a (1 contains edge)
@@ -431,7 +431,7 @@ def test_weighted_louvain_containment():
 
 
 def test_c_parser():
-    from codegraph.parser.cpp import CParser
+    from codegraph_gen.parser.cpp import CParser
 
     parser = CParser()
     code = b"""
@@ -478,8 +478,8 @@ void print_point(struct Point p) {
 
 
 def test_cpp_parser_and_resolution():
-    from codegraph.parser.cpp import CppParser
-    from codegraph.builder import build_graph
+    from codegraph_gen.parser.cpp import CppParser
+    from codegraph_gen.builder import build_graph
 
     with tempfile.TemporaryDirectory() as tmpdir:
         workspace = Path(tmpdir).resolve()
@@ -547,8 +547,8 @@ int main() {
 
 def test_incremental_caching_and_parallel_pipeline():
     import json
-    from codegraph.engine import CodegraphEngine
-    from codegraph.config import CodegraphConfig
+    from codegraph_gen.engine import CodegraphEngine
+    from codegraph_gen.config import CodegraphConfig
     import time
 
     with tempfile.TemporaryDirectory() as tmpdir:

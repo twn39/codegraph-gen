@@ -8,19 +8,19 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 import networkx as nx
 from pydantic import BaseModel, ConfigDict
 
-from codegraph.config import CodegraphConfig, CacheEntry
-from codegraph.parser.base import ExtractionResult
-from codegraph.detect import discover_files
-from codegraph.parser import get_parser
-from codegraph.builder import build_graph
-from codegraph.cluster import detect_components
-from codegraph.analyzer import analyze_graph, AnalysisResult
-from codegraph.renderer import (
+from codegraph_gen.config import CodegraphConfig, CacheEntry
+from codegraph_gen.parser.base import ExtractionResult
+from codegraph_gen.detect import discover_files
+from codegraph_gen.parser import get_parser
+from codegraph_gen.builder import build_graph
+from codegraph_gen.cluster import detect_components
+from codegraph_gen.analyzer import analyze_graph, AnalysisResult
+from codegraph_gen.renderer import (
     MarkdownRenderer,
     get_node_filename,
     get_component_filename,
 )
-from codegraph.writer import VaultWriter
+from codegraph_gen.writer import VaultWriter
 
 logger = logging.getLogger(__name__)
 
@@ -42,7 +42,7 @@ def _parse_file_worker(
 ) -> tuple[Path, Optional[ExtractionResult], Optional[str]]:
     """Worker function for parallel file parsing."""
     try:
-        from codegraph.parser import get_parser
+        from codegraph_gen.parser import get_parser
 
         parser = get_parser(lang)
         result = parser.parse_file(file_path, workspace_dir)

@@ -1,7 +1,7 @@
 import re
 from pathlib import Path
 import networkx as nx
-from codegraph.analyzer import AnalysisResult
+from codegraph_gen.analyzer import AnalysisResult
 
 
 def get_node_filename(node_id: str) -> str:

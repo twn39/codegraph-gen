@@ -10,7 +10,7 @@ from rich.progress import (
     MofNCompleteColumn,
 )
 
-from codegraph.config import CodegraphConfig, DEFAULT_EXCLUSIONS
+from codegraph_gen.config import CodegraphConfig, DEFAULT_EXCLUSIONS
 
 console = Console()
 
@@ -91,7 +91,7 @@ def build(
         use_cache=cache,
     )
 
-    from codegraph.engine import CodegraphEngine, PipelineStage
+    from codegraph_gen.engine import CodegraphEngine, PipelineStage
 
     engine = CodegraphEngine(config)
 
