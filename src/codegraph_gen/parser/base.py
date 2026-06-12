@@ -42,6 +42,20 @@ class BaseParser(ABC):
         pass
 
 
+_PARSER_REGISTRY: dict[str, type[BaseParser]] = {}
+
+
+def register_parser(*languages: str):
+    """Decorator to register a BaseParser subclass for one or more languages."""
+
+    def decorator(cls: type[BaseParser]):
+        for lang in languages:
+            _PARSER_REGISTRY[lang.lower()] = cls
+        return cls
+
+    return decorator
+
+
 class ScopeTracker:
     def __init__(self, initial_scope_id: str, initial_scope_type: str = "file"):
         self._stack: list[tuple[str, str]] = [(initial_scope_id, initial_scope_type)]

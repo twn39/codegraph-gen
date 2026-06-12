@@ -8,6 +8,7 @@ from codegraph_gen.parser.base import (
     NodeSchema,
     EdgeSchema,
     ASTVisitor,
+    register_parser,
 )
 
 logger = logging.getLogger(__name__)
@@ -222,6 +223,7 @@ class SwiftVisitor(ASTVisitor):
         self.generic_visit(node)
 
 
+@register_parser("swift")
 class SwiftParser(BaseParser):
     def __init__(self):
         self.language = tree_sitter.Language(tree_sitter_swift.language())

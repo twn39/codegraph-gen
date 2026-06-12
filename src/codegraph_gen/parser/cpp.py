@@ -7,6 +7,7 @@ from codegraph_gen.parser.base import (
     NodeSchema,
     EdgeSchema,
     ASTVisitor,
+    register_parser,
 )
 
 logger = logging.getLogger(__name__)
@@ -313,6 +314,7 @@ class CCppParser(BaseParser):
         return result
 
 
+@register_parser("c")
 class CParser(CCppParser):
     def __init__(self):
         import tree_sitter_c
@@ -320,6 +322,7 @@ class CParser(CCppParser):
         super().__init__(tree_sitter_c)
 
 
+@register_parser("cpp")
 class CppParser(CCppParser):
     def __init__(self):
         import tree_sitter_cpp

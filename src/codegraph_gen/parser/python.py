@@ -8,6 +8,7 @@ from codegraph_gen.parser.base import (
     NodeSchema,
     EdgeSchema,
     ASTVisitor,
+    register_parser,
 )
 
 logger = logging.getLogger(__name__)
@@ -283,6 +284,7 @@ class PythonVisitor(ASTVisitor):
         self.generic_visit(node)
 
 
+@register_parser("python")
 class PythonParser(BaseParser):
     def __init__(self):
         self.language = tree_sitter.Language(tree_sitter_python.language())
