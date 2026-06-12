@@ -3,11 +3,13 @@ from pathlib import Path
 import tree_sitter
 from codegraph_gen.parser.base import (
     BaseParser,
+    ASTVisitor,
+    register_parser,
+)
+from codegraph_gen.schema import (
     ExtractionResult,
     NodeSchema,
     EdgeSchema,
-    ASTVisitor,
-    register_parser,
 )
 
 logger = logging.getLogger(__name__)

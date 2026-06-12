@@ -9,7 +9,7 @@ import networkx as nx
 from pydantic import BaseModel, ConfigDict
 
 from codegraph_gen.config import CodegraphConfig, CacheEntry
-from codegraph_gen.parser.base import ExtractionResult
+from codegraph_gen.schema import ExtractionResult
 from codegraph_gen.detect import discover_files
 from codegraph_gen.parser import get_parser
 from codegraph_gen.builder import build_graph

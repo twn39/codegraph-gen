@@ -1,7 +1,7 @@
 import os
 from pathlib import Path
 from pydantic import BaseModel, Field
-from codegraph_gen.parser.base import ExtractionResult
+from codegraph_gen.schema import ExtractionResult
 
 # Default exclusions for files and directories we want to ignore
 DEFAULT_EXCLUSIONS = {

@@ -646,7 +646,8 @@ def test_incremental_caching_and_parallel_pipeline():
 def test_ast_visitor_caching_and_pruning():
     import tree_sitter
     import tree_sitter_python
-    from codegraph_gen.parser.base import ASTVisitor, ExtractionResult
+    from codegraph_gen.parser.base import ASTVisitor
+    from codegraph_gen.schema import ExtractionResult
 
     code = b"""
 # A comment here

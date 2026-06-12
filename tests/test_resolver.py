@@ -1,5 +1,5 @@
 import networkx as nx
-from codegraph_gen.parser.base import ExtractionResult, NodeSchema, EdgeSchema
+from codegraph_gen.schema import ExtractionResult, NodeSchema, EdgeSchema
 from codegraph_gen.resolver import TypeResolver, extract_return_type_from_signature
 
 

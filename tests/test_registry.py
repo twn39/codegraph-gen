@@ -5,8 +5,10 @@ from codegraph_gen.parser import get_parser
 from codegraph_gen.parser.base import (
     register_parser,
     BaseParser,
-    ExtractionResult,
     _PARSER_REGISTRY,
+)
+from codegraph_gen.schema import (
+    ExtractionResult,
 )
 
 

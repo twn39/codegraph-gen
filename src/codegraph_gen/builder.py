@@ -1,7 +1,7 @@
 import logging
 from pathlib import Path
 import networkx as nx
-from codegraph_gen.parser.base import ExtractionResult
+from codegraph_gen.schema import ExtractionResult
 from codegraph_gen.resolver import TypeResolver
 
 logger = logging.getLogger(__name__)

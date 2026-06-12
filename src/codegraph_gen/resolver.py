@@ -2,7 +2,7 @@ import logging
 from pathlib import Path
 import re
 import networkx as nx
-from codegraph_gen.parser.base import ExtractionResult
+from codegraph_gen.schema import ExtractionResult
 from codegraph_gen.resolver_strategy import (
     get_strategy_for_file,
     get_strategy_by_name,
