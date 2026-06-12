@@ -117,9 +117,8 @@ class CCppVisitor(ASTVisitor):
                             )
                         )
 
-        self.scope_stack.append((symbol_id, sym_type))
-        self.generic_visit(node)
-        self.scope_stack.pop()
+        with self.scope.push(symbol_id, sym_type):
+            self.generic_visit(node)
 
     def visit_function_definition(self, node: tree_sitter.Node) -> None:
         declarator = node.child_by_field_name("declarator")
@@ -127,7 +126,7 @@ class CCppVisitor(ASTVisitor):
 
         if func_name:
             parent_id = self.get_current_parent_id()
-            parent_type = self.scope_stack[-1][1] if self.scope_stack else "file"
+            parent_type = self.scope.current_type
 
             if "::" in func_name:
                 class_part, method_part = func_name.rsplit("::", 1)
@@ -176,9 +175,8 @@ class CCppVisitor(ASTVisitor):
             )
             self.defined_ids.add(method_id)
 
-            self.scope_stack.append((method_id, sym_type))
-            self.generic_visit(node)
-            self.scope_stack.pop()
+            with self.scope.push(method_id, sym_type):
+                self.generic_visit(node)
         else:
             self.generic_visit(node)
 

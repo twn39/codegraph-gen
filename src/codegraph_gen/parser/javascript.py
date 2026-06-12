@@ -66,9 +66,8 @@ class JavaScriptVisitor(ASTVisitor):
                                 )
                             )
 
-            self.scope_stack.append((class_id, sym_type))
-            self.generic_visit(node)
-            self.scope_stack.pop()
+            with self.scope.push(class_id, sym_type):
+                self.generic_visit(node)
         else:
             self.generic_visit(node)
 
@@ -83,7 +82,7 @@ class JavaScriptVisitor(ASTVisitor):
         if name_node:
             func_name = self.get_text(name_node)
             parent_id = self.get_current_parent_id()
-            parent_type = self.scope_stack[-1][1] if self.scope_stack else "file"
+            parent_type = self.scope.current_type
 
             if parent_type in ("class", "interface"):
                 func_id = f"{parent_id}.{func_name}"
@@ -182,9 +181,8 @@ class JavaScriptVisitor(ASTVisitor):
                 EdgeSchema(source=parent_id, target=func_id, relation="contains")
             )
 
-            self.scope_stack.append((func_id, sym_type))
-            self.generic_visit(node)
-            self.scope_stack.pop()
+            with self.scope.push(func_id, sym_type):
+                self.generic_visit(node)
         else:
             self.generic_visit(node)
 

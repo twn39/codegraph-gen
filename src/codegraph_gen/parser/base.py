@@ -42,6 +42,47 @@ class BaseParser(ABC):
         pass
 
 
+class ScopeTracker:
+    def __init__(self, initial_scope_id: str, initial_scope_type: str = "file"):
+        self._stack: list[tuple[str, str]] = [(initial_scope_id, initial_scope_type)]
+
+    def push(self, scope_id: str, scope_type: str) -> "ScopeTracker":
+        """Pushes a scope onto the stack. Returns self to act as a context manager."""
+        self._stack.append((scope_id, scope_type))
+        return self
+
+    def pop(self) -> tuple[str, str]:
+        """Pops the innermost scope from the stack."""
+        if len(self._stack) <= 1:
+            raise IndexError("Cannot pop the root scope")
+        return self._stack.pop()
+
+    def __enter__(self) -> "ScopeTracker":
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb) -> None:
+        self.pop()
+
+    @property
+    def current_id(self) -> str:
+        return self._stack[-1][0] if self._stack else ""
+
+    @property
+    def current_type(self) -> str:
+        return self._stack[-1][1] if self._stack else ""
+
+    @property
+    def stack(self) -> list[tuple[str, str]]:
+        return self._stack
+
+    def find_parent_by_type(self, type_name: str) -> str | None:
+        """Searches the stack from innermost to outermost for a specific scope type."""
+        for scope_id, scope_type in reversed(self._stack):
+            if scope_type == type_name:
+                return scope_id
+        return None
+
+
 class ASTVisitor:
     """Optimized base AST Visitor for dynamic routing and AST traversal."""
 
@@ -50,7 +91,12 @@ class ASTVisitor:
         self.rel_path = rel_path
         self.result = result
         self._visitor_cache = {}
-        self.scope_stack = [(rel_path, "file")]
+        self.scope = ScopeTracker(rel_path, "file")
+
+    @property
+    def scope_stack(self) -> list[tuple[str, str]]:
+        """Deprecated: Use self.scope instead. Kept for backward compatibility."""
+        return self.scope.stack
 
     def visit(self, node: tree_sitter.Node) -> None:
         """Visits a node by dynamically routing to visit_NodeType."""
@@ -104,4 +150,4 @@ class ASTVisitor:
 
     def get_current_parent_id(self) -> str:
         """Helper to retrieve the current parent scope's ID."""
-        return self.scope_stack[-1][0] if self.scope_stack else self.rel_path
+        return self.scope.current_id
