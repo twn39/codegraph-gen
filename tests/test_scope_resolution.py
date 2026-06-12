@@ -459,3 +459,78 @@ class Caller {
         assert G.has_edge(
             "Caller.kt::Caller.run", "EdgeTTSPlayer.kt::EdgeTTSPlayer.play"
         )
+
+
+def test_two_pass_type_propagation():
+    with tempfile.TemporaryDirectory() as tmpdir:
+        workspace = Path(tmpdir).resolve()
+
+        lib_file = workspace / "lib.py"
+        lib_file.write_text("""
+class Helper:
+    def process(self):
+        pass
+
+def make_helper() -> Helper:
+    return Helper()
+""")
+
+        caller_file = workspace / "caller.py"
+        caller_file.write_text("""
+from lib import make_helper
+
+def run():
+    h = make_helper()
+    h.process()
+""")
+
+        py_parser = PythonParser()
+        res_lib = py_parser.parse_file(lib_file, workspace)
+        res_caller = py_parser.parse_file(caller_file, workspace)
+
+        # Verify make_helper has the return type extracted
+        G = build_graph([res_lib, res_caller], workspace)
+
+        # Verify type was propagated and caller calls helper.process
+        assert G.has_edge("caller.py::run", "lib.py::Helper.process")
+
+
+def test_cross_language_binding_resolution():
+    from codegraph_gen.parser.rust import RustParser
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        workspace = Path(tmpdir).resolve()
+
+        rust_file = workspace / "native.rs"
+        rust_file.write_text("""
+#[pyfunction]
+pub fn get_native_agent() -> NativeAgent {
+    NativeAgent {}
+}
+
+pub struct NativeAgent;
+
+impl NativeAgent {
+    pub fn act(&self) {}
+}
+""")
+
+        python_file = workspace / "main.py"
+        python_file.write_text("""
+import rust_bindings
+
+def run():
+    agent = rust_bindings.get_native_agent()
+    agent.act()
+""")
+
+        rust_parser = RustParser()
+        py_parser = PythonParser()
+
+        res_rust = rust_parser.parse_file(rust_file, workspace)
+        res_py = py_parser.parse_file(python_file, workspace)
+
+        G = build_graph([res_rust, res_py], workspace)
+
+        # Verify Python calls Rust implementation act()
+        assert G.has_edge("main.py::run", "native.rs::NativeAgent.act")

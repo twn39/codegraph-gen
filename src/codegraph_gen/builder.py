@@ -1,5 +1,6 @@
 import logging
 from pathlib import Path
+import re
 import networkx as nx
 from codegraph_gen.parser.base import ExtractionResult
 
@@ -311,6 +312,74 @@ class FileSymbolScope:
         self.wildcard_imports: list[str] = []
 
 
+def extract_return_type_from_signature(signature: str, language: str) -> str | None:
+    signature = signature.strip()
+    if not signature:
+        return None
+
+    if language in ("python", "rust", "swift"):
+        match = re.search(r"->\s*([\w::.<>]+)", signature)
+        if match:
+            ret_type = match.group(1).strip()
+            generic_match = re.search(r"<([\w::.]+)>", ret_type)
+            if generic_match:
+                return generic_match.group(1).rsplit("::", 1)[-1].rsplit(".", 1)[-1]
+            return ret_type.rsplit("::", 1)[-1].rsplit(".", 1)[-1]
+
+    elif language == "kotlin":
+        last_paren = signature.rfind(")")
+        if last_paren != -1:
+            after_paren = signature[last_paren + 1 :]
+            match = re.search(r":\s*([\w<>]+)", after_paren)
+            if match:
+                ret_type = match.group(1).strip()
+                generic_match = re.search(r"<([\w]+)>", ret_type)
+                if generic_match:
+                    return generic_match.group(1)
+                return ret_type
+
+    elif language == "go":
+        last_paren = signature.rfind(")")
+        if last_paren != -1:
+            after_paren = signature[last_paren + 1 :].strip()
+            if not after_paren or after_paren == "{":
+                return None
+            if after_paren.startswith("("):
+                after_paren = after_paren[1:].split(")")[0]
+                parts = [p.strip() for p in after_paren.split(",")]
+                for p in parts:
+                    clean_p = p.split()[-1]
+                    if clean_p not in ("error", "bool", "int", "string"):
+                        return clean_p
+            else:
+                clean_p = after_paren.split("{")[0].strip().split()[-1]
+                clean_p = clean_p.lstrip("*").lstrip("[]")
+                if clean_p not in ("error", "bool", "int", "string"):
+                    return clean_p
+
+    elif language in ("c", "cpp"):
+        tokens = signature.split()
+        if tokens:
+            idx = 0
+            while idx < len(tokens) and tokens[idx] in (
+                "inline",
+                "static",
+                "virtual",
+                "friend",
+                "const",
+                "constexpr",
+            ):
+                idx += 1
+            if idx < len(tokens):
+                ret_type = tokens[idx]
+                if "(" in ret_type or ")" in ret_type:
+                    return None
+                ret_type = ret_type.replace("*", "").replace("&", "").strip()
+                return ret_type.split("::")[-1]
+
+    return None
+
+
 def build_graph(extractions: list[ExtractionResult], workspace_dir: Path) -> nx.DiGraph:
     """
     Assembles a list of ExtractionResults into a single directed graph
@@ -392,9 +461,11 @@ def build_graph(extractions: list[ExtractionResult], workspace_dir: Path) -> nx.
                     return nid
         return None
 
-    # Pass 1: Build Symbol Scopes
+    # Pass 1: Build Symbol Scopes & Global maps
     scopes: dict[str, FileSymbolScope] = {}
     file_languages: dict[str, str] = {}
+    global_symbol_map: dict[str, list[str]] = {}
+    return_types: dict[str, str] = {}
 
     for nid, data in G.nodes(data=True):
         if data.get("type") == "file":
@@ -417,13 +488,25 @@ def build_graph(extractions: list[ExtractionResult], workspace_dir: Path) -> nx.
             file_languages[nid] = lang
             scopes[nid] = FileSymbolScope(nid, lang)
 
-    # Populate declared symbols for each scope
+    # Populate declared symbols, global symbol map, and return types
     for nid, data in G.nodes(data=True):
         sf = data.get("source_file")
         ntype = data.get("type")
         label = data.get("label")
+
+        if label and ntype != "file":
+            global_symbol_map.setdefault(label, []).append(nid)
+
         if sf and ntype != "file" and label and sf in scopes:
             scopes[sf].declared_symbols[label] = nid
+
+        # Extract return types for functions/methods
+        if ntype in ("function", "method") and sf:
+            lang = file_languages.get(sf, "python")
+            sig = data.get("signature", "")
+            ret = extract_return_type_from_signature(sig, lang)
+            if ret:
+                return_types[nid] = ret
 
     # Populate imported symbols for each scope
     for ext in extractions:
@@ -488,10 +571,13 @@ def build_graph(extractions: list[ExtractionResult], workspace_dir: Path) -> nx.
             receiver_type = local_bindings[main_symbol]
             resolved_class_id = None
 
+            # Check if it is already a fully qualified Node ID in the graph
+            if receiver_type in node_ids:
+                resolved_class_id = receiver_type
+
             # Check if it's declared in the same file
-            file_cand = f"{source_file}::{receiver_type}"
-            if file_cand in node_ids:
-                resolved_class_id = file_cand
+            elif f"{source_file}::{receiver_type}" in node_ids:
+                resolved_class_id = f"{source_file}::{receiver_type}"
 
             # Check explicit imports
             elif receiver_type in scope.imported_symbols:
@@ -693,10 +779,7 @@ def build_graph(extractions: list[ExtractionResult], workspace_dir: Path) -> nx.
         if len(parts) > 1 and search_label in COMMON_BUILTIN_METHODS:
             return None
 
-        candidates = []
-        for nid, ndata in G.nodes(data=True):
-            if ndata.get("label") == search_label and ndata.get("type") != "file":
-                candidates.append(nid)
+        candidates = global_symbol_map.get(search_label, [])
 
         if len(candidates) == 1:
             return candidates[0]
@@ -710,7 +793,53 @@ def build_graph(extractions: list[ExtractionResult], workspace_dir: Path) -> nx.
             if len(near_candidates) == 1:
                 return near_candidates[0]
 
-        return None
+    # Pass 1.5: Iterative Type Propagation (up to 3 passes)
+    for _ in range(3):
+        changes = False
+        for nid, ndata in G.nodes(data=True):
+            if ndata.get("type") == "file":
+                continue
+            local_bindings = ndata.get("local_bindings", {})
+            if not local_bindings:
+                continue
+
+            for var_name, bound_name in list(local_bindings.items()):
+                if bound_name in node_ids:
+                    continue
+
+                resolved_symbol_id = resolve_symbol(nid, bound_name)
+                if resolved_symbol_id and resolved_symbol_id in node_ids:
+                    resolved_node = G.nodes[resolved_symbol_id]
+                    r_type = resolved_node.get("type")
+
+                    if r_type in ("function", "method"):
+                        ret_type = return_types.get(resolved_symbol_id)
+                        if ret_type:
+                            func_source = resolved_node.get("source_file")
+                            if func_source and func_source in scopes:
+                                resolved_type_id = scopes[
+                                    func_source
+                                ].declared_symbols.get(ret_type)
+                                if resolved_type_id:
+                                    local_bindings[var_name] = resolved_type_id
+                                    changes = True
+                                    continue
+                            resolved_type_id = resolve_symbol(
+                                resolved_symbol_id, ret_type
+                            )
+                            if resolved_type_id:
+                                local_bindings[var_name] = resolved_type_id
+                                changes = True
+                            else:
+                                local_bindings[var_name] = ret_type
+                                changes = True
+
+                    elif r_type in ("class", "struct", "interface", "enum"):
+                        local_bindings[var_name] = resolved_symbol_id
+                        changes = True
+
+        if not changes:
+            break
 
     # Pass 2: Process and resolve edges
     for ext in extractions:
