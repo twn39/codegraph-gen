@@ -7,9 +7,221 @@ from codegraph_gen.parser.base import (
     ExtractionResult,
     NodeSchema,
     EdgeSchema,
+    ASTVisitor,
 )
 
 logger = logging.getLogger(__name__)
+
+
+class SwiftVisitor(ASTVisitor):
+    def __init__(self, source: bytes, rel_path: str, result: ExtractionResult, parser):
+        super().__init__(source, rel_path, result)
+        self.parser = parser
+        self.file_node_id = rel_path
+
+    def visit_class_declaration(self, node: tree_sitter.Node) -> None:
+        self._visit_type_declaration(node, "class_declaration")
+
+    def visit_struct_declaration(self, node: tree_sitter.Node) -> None:
+        self._visit_type_declaration(node, "struct_declaration")
+
+    def visit_protocol_declaration(self, node: tree_sitter.Node) -> None:
+        self._visit_type_declaration(node, "protocol_declaration")
+
+    def visit_enum_declaration(self, node: tree_sitter.Node) -> None:
+        self._visit_type_declaration(node, "enum_declaration")
+
+    def _visit_type_declaration(self, node: tree_sitter.Node, node_type: str) -> None:
+        name_node = node.child_by_field_name("name")
+        if name_node:
+            class_name = self.get_text(name_node)
+            parent_id = self.get_current_parent_id()
+            class_id = f"{self.rel_path}::{class_name}"
+
+            sym_type = "class"
+            if node_type == "struct_declaration":
+                sym_type = "struct"
+            elif node_type == "protocol_declaration":
+                sym_type = "interface"
+            elif node_type == "enum_declaration":
+                sym_type = "enum"
+
+            start_line, end_line = self.get_line_range(node)
+            self.result.nodes.append(
+                NodeSchema(
+                    id=class_id,
+                    label=class_name,
+                    type=sym_type,
+                    source_file=self.rel_path,
+                    line_start=start_line,
+                    line_end=end_line,
+                    signature=self.parser._get_signature(node, self.source),
+                    docstring=self.parser._get_docstring(node, self.source),
+                )
+            )
+
+            self.result.edges.append(
+                EdgeSchema(source=parent_id, target=class_id, relation="contains")
+            )
+
+            # Protocol conformances or subclassing
+            for child in node.children:
+                if child.type == "type_inheritance_clause":
+                    for sub in child.children:
+                        if sub.type == "type_identifier":
+                            parent_name = self.get_text(sub)
+                            self.result.edges.append(
+                                EdgeSchema(
+                                    source=class_id,
+                                    target=parent_name,
+                                    relation="inherits",
+                                )
+                            )
+
+            self.scope_stack.append((class_id, sym_type))
+            self.generic_visit(node)
+            self.scope_stack.pop()
+        else:
+            self.generic_visit(node)
+
+    def visit_function_declaration(self, node: tree_sitter.Node) -> None:
+        self._visit_function_or_init(node, "function_declaration")
+
+    def visit_init_declaration(self, node: tree_sitter.Node) -> None:
+        self._visit_function_or_init(node, "init_declaration")
+
+    def visit_deinit_declaration(self, node: tree_sitter.Node) -> None:
+        self._visit_function_or_init(node, "deinit_declaration")
+
+    def _visit_function_or_init(self, node: tree_sitter.Node, node_type: str) -> None:
+        func_name = None
+        if node_type == "function_declaration":
+            name_node = node.child_by_field_name("name")
+            if name_node:
+                func_name = self.get_text(name_node)
+        elif node_type == "init_declaration":
+            func_name = "init"
+        elif node_type == "deinit_declaration":
+            func_name = "deinit"
+
+        if func_name:
+            parent_id = self.get_current_parent_id()
+            parent_type = self.scope_stack[-1][1] if self.scope_stack else "file"
+
+            if parent_type in ("class", "struct", "interface", "enum"):
+                func_id = f"{parent_id}.{func_name}"
+                sym_type = "method"
+            else:
+                func_id = f"{self.rel_path}::{func_name}"
+                sym_type = "function"
+
+            local_bindings = {}
+
+            def extract_type_id(tc):
+                if tc.type == "type_identifier":
+                    return self.get_text(tc)
+                for gc in tc.children:
+                    res = extract_type_id(gc)
+                    if res:
+                        return res
+                return None
+
+            def collect_local_bindings(n):
+                if n.type == "property_declaration":
+                    var_name = None
+                    for child in n.children:
+                        if child.type == "pattern":
+                            for gc in child.children:
+                                if gc.type == "simple_identifier":
+                                    var_name = self.get_text(gc)
+                    if var_name:
+                        type_name = None
+                        for child in n.children:
+                            if child.type == "type_annotation":
+                                type_name = extract_type_id(child)
+                        if not type_name:
+                            for child in n.children:
+                                if child.type == "call_expression":
+                                    for gc in child.children:
+                                        if gc.type == "simple_identifier":
+                                            type_name = self.get_text(gc)
+                        if type_name:
+                            local_bindings[var_name] = type_name
+                elif n.type == "parameter":
+                    identifiers = []
+                    type_name = None
+                    seen_colon = False
+                    for child in n.children:
+                        if child.type == "simple_identifier" and not seen_colon:
+                            identifiers.append(self.get_text(child))
+                        elif child.type == ":":
+                            seen_colon = True
+                        elif seen_colon:
+                            res = extract_type_id(child)
+                            if res:
+                                type_name = res
+                                break
+                    if identifiers and type_name:
+                        var_name = identifiers[-1]
+                        local_bindings[var_name] = type_name
+
+                for child in n.children:
+                    collect_local_bindings(child)
+
+            collect_local_bindings(node)
+
+            start_line, end_line = self.get_line_range(node)
+            self.result.nodes.append(
+                NodeSchema(
+                    id=func_id,
+                    label=func_name,
+                    type=sym_type,
+                    source_file=self.rel_path,
+                    line_start=start_line,
+                    line_end=end_line,
+                    signature=self.parser._get_signature(node, self.source),
+                    docstring=self.parser._get_docstring(node, self.source),
+                    local_bindings=local_bindings,
+                )
+            )
+
+            self.result.edges.append(
+                EdgeSchema(source=parent_id, target=func_id, relation="contains")
+            )
+
+            self.scope_stack.append((func_id, sym_type))
+            self.generic_visit(node)
+            self.scope_stack.pop()
+        else:
+            self.generic_visit(node)
+
+    def visit_import_declaration(self, node: tree_sitter.Node) -> None:
+        path_parts = []
+        for child in node.children:
+            if child.type in ("simple_identifier", "navigation_expression"):
+                path_parts.append(self.get_text(child))
+        if path_parts:
+            import_path = ".".join(path_parts)
+            self.result.edges.append(
+                EdgeSchema(
+                    source=self.file_node_id, target=import_path, relation="imports"
+                )
+            )
+        self.generic_visit(node)
+
+    def visit_call_expression(self, node: tree_sitter.Node) -> None:
+        func_node = None
+        for child in node.children:
+            if child.type in ("simple_identifier", "navigation_expression"):
+                func_node = child
+                break
+        if func_node:
+            callee_name = self.get_text(func_node)
+            caller_id = self.get_current_parent_id()
+            self.result.edges.append(
+                EdgeSchema(source=caller_id, target=callee_name, relation="calls")
+            )
+        self.generic_visit(node)
 
 
 class SwiftParser(BaseParser):
@@ -18,7 +230,6 @@ class SwiftParser(BaseParser):
         self.parser = tree_sitter.Parser(self.language)
 
     def _get_docstring(self, node, source: bytes) -> str:
-        """Finds comments immediately preceding the node."""
         docstring = ""
         prev = node.prev_sibling
         comments = []
@@ -26,7 +237,6 @@ class SwiftParser(BaseParser):
             comment_text = source[prev.start_byte : prev.end_byte].decode(
                 "utf-8", errors="replace"
             )
-            # Strip comment markers (///, //, /*)
             clean_text = comment_text.strip().lstrip("/").strip()
             comments.append(clean_text)
             prev = prev.prev_sibling
@@ -36,15 +246,11 @@ class SwiftParser(BaseParser):
         return docstring
 
     def _get_signature(self, node, source: bytes) -> str:
-        # For Swift, we find body child or child starting with '{'
         body = None
         for child in node.children:
             if child.type in (
                 "class_body",
                 "struct_body",
-                "protocol_body",
-                "enum_body",
-                "function_body",
                 "brace_item_list",
             ):
                 body = child
@@ -90,243 +296,6 @@ class SwiftParser(BaseParser):
             )
         )
 
-        scope_stack = [(file_node_id, "file")]
-
-        def get_current_parent_id():
-            return scope_stack[-1][0] if scope_stack else file_node_id
-
-        def walk(node):
-            nonlocal result
-
-            if node.type == "ERROR" or (hasattr(node, "is_error") and node.is_error):
-                logger.debug(f"Skipping syntax error node in Swift AST: {node}")
-                return
-
-            node_type = node.type
-            pushed_scope = False
-
-            if node_type in (
-                "class_declaration",
-                "struct_declaration",
-                "protocol_declaration",
-                "enum_declaration",
-            ):
-                name_node = node.child_by_field_name("name")
-                if name_node:
-                    class_name = source[
-                        name_node.start_byte : name_node.end_byte
-                    ].decode("utf-8", errors="replace")
-                    parent_id = get_current_parent_id()
-                    class_id = f"{rel_path}::{class_name}"
-
-                    sym_type = "class"
-                    if node_type == "struct_declaration":
-                        sym_type = "struct"
-                    elif node_type == "protocol_declaration":
-                        sym_type = "interface"
-                    elif node_type == "enum_declaration":
-                        sym_type = "enum"
-
-                    result.nodes.append(
-                        NodeSchema(
-                            id=class_id,
-                            label=class_name,
-                            type=sym_type,
-                            source_file=rel_path,
-                            line_start=node.start_point[0] + 1,
-                            line_end=node.end_point[0] + 1,
-                            signature=self._get_signature(node, source),
-                            docstring=self._get_docstring(node, source),
-                        )
-                    )
-
-                    result.edges.append(
-                        EdgeSchema(
-                            source=parent_id, target=class_id, relation="contains"
-                        )
-                    )
-
-                    # Protocol conformances or subclassing (inheritance) can be found in children
-                    # Swift uses type_inheritance_clause
-                    for child in node.children:
-                        if child.type == "type_inheritance_clause":
-                            for sub in child.children:
-                                if sub.type == "type_identifier":
-                                    parent_name = source[
-                                        sub.start_byte : sub.end_byte
-                                    ].decode("utf-8", errors="replace")
-                                    result.edges.append(
-                                        EdgeSchema(
-                                            source=class_id,
-                                            target=parent_name,
-                                            relation="inherits",
-                                        )
-                                    )
-
-                    scope_stack.append((class_id, sym_type))
-                    pushed_scope = True
-
-            elif node_type in (
-                "function_declaration",
-                "init_declaration",
-                "deinit_declaration",
-            ):
-                func_name = None
-                if node_type == "function_declaration":
-                    name_node = node.child_by_field_name("name")
-                    if name_node:
-                        func_name = source[
-                            name_node.start_byte : name_node.end_byte
-                        ].decode("utf-8", errors="replace")
-                elif node_type == "init_declaration":
-                    func_name = "init"
-                elif node_type == "deinit_declaration":
-                    func_name = "deinit"
-
-                if func_name:
-                    parent_id = get_current_parent_id()
-                    parent_type = scope_stack[-1][1] if scope_stack else "file"
-
-                    if parent_type in ("class", "struct", "interface", "enum"):
-                        func_id = f"{parent_id}.{func_name}"
-                        sym_type = "method"
-                    else:
-                        func_id = f"{rel_path}::{func_name}"
-                        sym_type = "function"
-
-                    local_bindings = {}
-
-                    def extract_type_id(tc):
-                        if tc.type == "type_identifier":
-                            return source[tc.start_byte : tc.end_byte].decode(
-                                "utf-8", errors="replace"
-                            )
-                        for gc in tc.children:
-                            res = extract_type_id(gc)
-                            if res:
-                                return res
-                        return None
-
-                    def collect_local_bindings(n):
-                        if n.type == "property_declaration":
-                            var_name = None
-                            for child in n.children:
-                                if child.type == "pattern":
-                                    for gc in child.children:
-                                        if gc.type == "simple_identifier":
-                                            var_name = source[
-                                                gc.start_byte : gc.end_byte
-                                            ].decode("utf-8", errors="replace")
-                            if var_name:
-                                type_name = None
-                                for child in n.children:
-                                    if child.type == "type_annotation":
-                                        type_name = extract_type_id(child)
-                                if not type_name:
-                                    for child in n.children:
-                                        if child.type == "call_expression":
-                                            for gc in child.children:
-                                                if gc.type == "simple_identifier":
-                                                    type_name = source[
-                                                        gc.start_byte : gc.end_byte
-                                                    ].decode("utf-8", errors="replace")
-                                if type_name:
-                                    local_bindings[var_name] = type_name
-                        elif n.type == "parameter":
-                            identifiers = []
-                            type_name = None
-                            seen_colon = False
-                            for child in n.children:
-                                if child.type == "simple_identifier" and not seen_colon:
-                                    identifiers.append(
-                                        source[
-                                            child.start_byte : child.end_byte
-                                        ].decode("utf-8", errors="replace")
-                                    )
-                                elif child.type == ":":
-                                    seen_colon = True
-                                elif seen_colon:
-                                    res = extract_type_id(child)
-                                    if res:
-                                        type_name = res
-                                        break
-                            if identifiers and type_name:
-                                var_name = identifiers[-1]
-                                local_bindings[var_name] = type_name
-
-                        for child in n.children:
-                            collect_local_bindings(child)
-
-                    collect_local_bindings(node)
-
-                    result.nodes.append(
-                        NodeSchema(
-                            id=func_id,
-                            label=func_name,
-                            type=sym_type,
-                            source_file=rel_path,
-                            line_start=node.start_point[0] + 1,
-                            line_end=node.end_point[0] + 1,
-                            signature=self._get_signature(node, source),
-                            docstring=self._get_docstring(node, source),
-                            local_bindings=local_bindings,
-                        )
-                    )
-
-                    result.edges.append(
-                        EdgeSchema(
-                            source=parent_id, target=func_id, relation="contains"
-                        )
-                    )
-
-                    scope_stack.append((func_id, sym_type))
-                    pushed_scope = True
-
-            elif node_type == "import_declaration":
-                # import UIKit or import class Module.Class
-                # Find path/identifier children
-                path_parts = []
-                for child in node.children:
-                    if child.type in ("simple_identifier", "navigation_expression"):
-                        path_parts.append(
-                            source[child.start_byte : child.end_byte].decode(
-                                "utf-8", errors="replace"
-                            )
-                        )
-                if path_parts:
-                    import_path = ".".join(path_parts)
-                    result.edges.append(
-                        EdgeSchema(
-                            source=file_node_id, target=import_path, relation="imports"
-                        )
-                    )
-
-            elif node_type == "call_expression":
-                # Swift call expression contains function name and arguments
-                # Find the child that represents the function
-                func_node = None
-                for child in node.children:
-                    # It could be simple_identifier, navigation_expression, etc.
-                    if child.type in ("simple_identifier", "navigation_expression"):
-                        func_node = child
-                        break
-                if func_node:
-                    callee_name = source[
-                        func_node.start_byte : func_node.end_byte
-                    ].decode("utf-8", errors="replace")
-                    caller_id = get_current_parent_id()
-                    result.edges.append(
-                        EdgeSchema(
-                            source=caller_id, target=callee_name, relation="calls"
-                        )
-                    )
-
-            # Recurse children
-            for child in node.children:
-                walk(child)
-
-            if pushed_scope:
-                scope_stack.pop()
-
-        walk(root)
+        visitor = SwiftVisitor(source, rel_path, result, self)
+        visitor.visit(root)
         return result

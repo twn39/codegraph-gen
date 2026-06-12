@@ -7,9 +7,259 @@ from codegraph_gen.parser.base import (
     ExtractionResult,
     NodeSchema,
     EdgeSchema,
+    ASTVisitor,
 )
 
 logger = logging.getLogger(__name__)
+
+
+class KotlinVisitor(ASTVisitor):
+    def __init__(self, source: bytes, rel_path: str, result: ExtractionResult, parser):
+        super().__init__(source, rel_path, result)
+        self.parser = parser
+        self.file_node_id = rel_path
+
+    def visit_class_declaration(self, node: tree_sitter.Node) -> None:
+        self._visit_type(node, "class_declaration")
+
+    def visit_object_declaration(self, node: tree_sitter.Node) -> None:
+        self._visit_type(node, "object_declaration")
+
+    def _visit_type(self, node: tree_sitter.Node, node_type: str) -> None:
+        name_node = node.child_by_field_name("name")
+        if name_node:
+            class_name = self.get_text(name_node)
+            parent_id = self.get_current_parent_id()
+            class_id = f"{self.rel_path}::{class_name}"
+
+            if node_type == "class_declaration":
+                is_interface = any(c.type == "interface" for c in node.children)
+                sym_type = "interface" if is_interface else "class"
+            else:
+                sym_type = "class"
+
+            start_line, end_line = self.get_line_range(node)
+            self.result.nodes.append(
+                NodeSchema(
+                    id=class_id,
+                    label=class_name,
+                    type=sym_type,
+                    source_file=self.rel_path,
+                    line_start=start_line,
+                    line_end=end_line,
+                    signature=self.parser._get_signature(node, self.source),
+                    docstring=self.parser._get_docstring(node, self.source),
+                )
+            )
+
+            self.result.edges.append(
+                EdgeSchema(source=parent_id, target=class_id, relation="contains")
+            )
+
+            # Check inheritance / delegation specifiers
+            for child in node.children:
+                if child.type == "delegation_specifiers":
+                    for spec in child.children:
+                        if spec.type == "delegation_specifier":
+
+                            def find_user_type(n):
+                                if n.type == "user_type":
+                                    return n
+                                for c in n.children:
+                                    res = find_user_type(c)
+                                    if res:
+                                        return res
+                                return None
+
+                            user_type_node = find_user_type(spec)
+                            if user_type_node:
+                                id_node = next(
+                                    (
+                                        c
+                                        for c in user_type_node.children
+                                        if c.type == "identifier"
+                                    ),
+                                    None,
+                                )
+                                if id_node:
+                                    parent_name = self.get_text(id_node)
+                                    self.result.edges.append(
+                                        EdgeSchema(
+                                            source=class_id,
+                                            target=parent_name,
+                                            relation="inherits",
+                                        )
+                                    )
+
+            self.scope_stack.append((class_id, sym_type))
+            self.generic_visit(node)
+            self.scope_stack.pop()
+        else:
+            self.generic_visit(node)
+
+    def visit_function_declaration(self, node: tree_sitter.Node) -> None:
+        name_node = node.child_by_field_name("name")
+        if name_node:
+            func_name = self.get_text(name_node)
+            parent_id = self.get_current_parent_id()
+            parent_type = self.scope_stack[-1][1] if self.scope_stack else "file"
+
+            if parent_type in ("class", "interface"):
+                func_id = f"{parent_id}.{func_name}"
+                sym_type = "method"
+            else:
+                func_id = f"{self.rel_path}::{func_name}"
+                sym_type = "function"
+
+            local_bindings = {}
+
+            def extract_type_from_kt_node(kt_node):
+                if kt_node.type == "user_type":
+                    id_node = next(
+                        (c for c in kt_node.children if c.type == "identifier"),
+                        None,
+                    )
+                    if id_node:
+                        return self.get_text(id_node)
+                elif kt_node.type == "call_expression":
+                    callee = kt_node.child_by_field_name("constructor") or next(
+                        (c for c in kt_node.children if c.type == "identifier"),
+                        None,
+                    )
+                    if callee:
+                        return self.get_text(callee)
+                for child in kt_node.children:
+                    res = extract_type_from_kt_node(child)
+                    if res:
+                        return res
+                return None
+
+            def collect_local_bindings(n):
+                if n.type == "parameter":
+                    id_node = next(
+                        (c for c in n.children if c.type == "identifier"), None
+                    )
+                    type_node = next(
+                        (c for c in n.children if c.type == "user_type"), None
+                    )
+                    if id_node and type_node:
+                        var_name = self.get_text(id_node)
+                        t_name = extract_type_from_kt_node(type_node)
+                        if t_name:
+                            local_bindings[var_name] = t_name
+                elif n.type == "property_declaration":
+                    var_decl = next(
+                        (c for c in n.children if c.type == "variable_declaration"),
+                        None,
+                    )
+                    val_expr = next(
+                        (c for c in n.children if c.type == "call_expression"),
+                        None,
+                    )
+                    if var_decl:
+                        id_node = next(
+                            (c for c in var_decl.children if c.type == "identifier"),
+                            None,
+                        )
+                        type_node = next(
+                            (c for c in var_decl.children if c.type == "user_type"),
+                            None,
+                        )
+                        if id_node:
+                            var_name = self.get_text(id_node)
+                            if type_node:
+                                t_name = extract_type_from_kt_node(type_node)
+                                if t_name:
+                                    local_bindings[var_name] = t_name
+                            elif val_expr:
+                                t_name = extract_type_from_kt_node(val_expr)
+                                if t_name:
+                                    local_bindings[var_name] = t_name
+
+                for child in n.children:
+                    if child.type not in (
+                        "function_declaration",
+                        "class_declaration",
+                        "object_declaration",
+                    ):
+                        collect_local_bindings(child)
+
+            collect_local_bindings(node)
+
+            start_line, end_line = self.get_line_range(node)
+            self.result.nodes.append(
+                NodeSchema(
+                    id=func_id,
+                    label=func_name,
+                    type=sym_type,
+                    source_file=self.rel_path,
+                    line_start=start_line,
+                    line_end=end_line,
+                    signature=self.parser._get_signature(node, self.source),
+                    docstring=self.parser._get_docstring(node, self.source),
+                    local_bindings=local_bindings,
+                )
+            )
+
+            self.result.edges.append(
+                EdgeSchema(source=parent_id, target=func_id, relation="contains")
+            )
+
+            self.scope_stack.append((func_id, sym_type))
+            self.generic_visit(node)
+            self.scope_stack.pop()
+        else:
+            self.generic_visit(node)
+
+    def visit_import(self, node: tree_sitter.Node) -> None:
+        qual_id_node = next(
+            (c for c in node.children if c.type == "qualified_identifier"), None
+        )
+        if qual_id_node:
+            target = self.get_text(qual_id_node)
+            is_wildcard = any(c.type == "*" for c in node.children)
+            alias = None
+
+            as_idx = next(
+                (i for i, c in enumerate(node.children) if c.type == "as"), -1
+            )
+            if as_idx != -1 and as_idx + 1 < len(node.children):
+                alias_node = node.children[as_idx + 1]
+                if alias_node.type == "identifier":
+                    alias = self.get_text(alias_node)
+
+            if is_wildcard:
+                import_map = {"*": "*"}
+            elif alias:
+                last_part = target.split(".")[-1]
+                import_map = {alias: last_part}
+            else:
+                last_part = target.split(".")[-1]
+                import_map = {last_part: last_part}
+
+            self.result.edges.append(
+                EdgeSchema(
+                    source=self.file_node_id,
+                    target=target,
+                    relation="imports",
+                    import_map=import_map,
+                )
+            )
+        self.generic_visit(node)
+
+    def visit_call_expression(self, node: tree_sitter.Node) -> None:
+        func_node = None
+        for child in node.children:
+            if child.type in ("identifier", "navigation_expression"):
+                func_node = child
+                break
+        if func_node:
+            callee_name = self.get_text(func_node)
+            caller_id = self.get_current_parent_id()
+            self.result.edges.append(
+                EdgeSchema(source=caller_id, target=callee_name, relation="calls")
+            )
+        self.generic_visit(node)
 
 
 class KotlinParser(BaseParser):
@@ -18,7 +268,6 @@ class KotlinParser(BaseParser):
         self.parser = tree_sitter.Parser(self.language)
 
     def _get_docstring(self, node, source: bytes) -> str:
-        """Finds comments immediately preceding the node."""
         docstring = ""
         prev = node.prev_sibling
         comments = []
@@ -26,7 +275,6 @@ class KotlinParser(BaseParser):
             comment_text = source[prev.start_byte : prev.end_byte].decode(
                 "utf-8", errors="replace"
             )
-            # Strip comment markers (//, /*, /**, *)
             clean_text = (
                 comment_text.strip()
                 .lstrip("/*")
@@ -93,290 +341,6 @@ class KotlinParser(BaseParser):
             )
         )
 
-        scope_stack = [(file_node_id, "file")]
-
-        def get_current_parent_id():
-            return scope_stack[-1][0] if scope_stack else file_node_id
-
-        def walk(node):
-            nonlocal result
-
-            if node.type == "ERROR" or (hasattr(node, "is_error") and node.is_error):
-                logger.debug(f"Skipping syntax error node in Kotlin AST: {node}")
-                return
-
-            node_type = node.type
-            pushed_scope = False
-
-            if node_type in ("class_declaration", "object_declaration"):
-                name_node = node.child_by_field_name("name")
-                if name_node:
-                    class_name = source[
-                        name_node.start_byte : name_node.end_byte
-                    ].decode("utf-8", errors="replace")
-                    parent_id = get_current_parent_id()
-                    class_id = f"{rel_path}::{class_name}"
-
-                    if node_type == "class_declaration":
-                        is_interface = any(c.type == "interface" for c in node.children)
-                        sym_type = "interface" if is_interface else "class"
-                    else:
-                        sym_type = "class"  # Map object declaration to class
-
-                    result.nodes.append(
-                        NodeSchema(
-                            id=class_id,
-                            label=class_name,
-                            type=sym_type,
-                            source_file=rel_path,
-                            line_start=node.start_point[0] + 1,
-                            line_end=node.end_point[0] + 1,
-                            signature=self._get_signature(node, source),
-                            docstring=self._get_docstring(node, source),
-                        )
-                    )
-
-                    result.edges.append(
-                        EdgeSchema(
-                            source=parent_id, target=class_id, relation="contains"
-                        )
-                    )
-
-                    # Check inheritance / delegation specifiers
-                    for child in node.children:
-                        if child.type == "delegation_specifiers":
-                            for spec in child.children:
-                                if spec.type == "delegation_specifier":
-
-                                    def find_user_type(n):
-                                        if n.type == "user_type":
-                                            return n
-                                        for c in n.children:
-                                            res = find_user_type(c)
-                                            if res:
-                                                return res
-                                        return None
-
-                                    user_type_node = find_user_type(spec)
-                                    if user_type_node:
-                                        id_node = next(
-                                            (
-                                                c
-                                                for c in user_type_node.children
-                                                if c.type == "identifier"
-                                            ),
-                                            None,
-                                        )
-                                        if id_node:
-                                            parent_name = source[
-                                                id_node.start_byte : id_node.end_byte
-                                            ].decode("utf-8", errors="replace")
-                                            result.edges.append(
-                                                EdgeSchema(
-                                                    source=class_id,
-                                                    target=parent_name,
-                                                    relation="inherits",
-                                                )
-                                            )
-
-                    scope_stack.append((class_id, sym_type))
-                    pushed_scope = True
-
-            elif node_type == "function_declaration":
-                name_node = node.child_by_field_name("name")
-                if name_node:
-                    func_name = source[
-                        name_node.start_byte : name_node.end_byte
-                    ].decode("utf-8", errors="replace")
-                    parent_id = get_current_parent_id()
-                    parent_type = scope_stack[-1][1] if scope_stack else "file"
-
-                    if parent_type in ("class", "interface"):
-                        func_id = f"{parent_id}.{func_name}"
-                        sym_type = "method"
-                    else:
-                        func_id = f"{rel_path}::{func_name}"
-                        sym_type = "function"
-
-                    local_bindings = {}
-
-                    def extract_type_from_kt_node(kt_node):
-                        if kt_node.type == "user_type":
-                            id_node = next(
-                                (c for c in kt_node.children if c.type == "identifier"),
-                                None,
-                            )
-                            if id_node:
-                                return source[
-                                    id_node.start_byte : id_node.end_byte
-                                ].decode("utf-8", errors="replace")
-                        elif kt_node.type == "call_expression":
-                            callee = kt_node.child_by_field_name("constructor") or next(
-                                (c for c in kt_node.children if c.type == "identifier"),
-                                None,
-                            )
-                            if callee:
-                                return source[
-                                    callee.start_byte : callee.end_byte
-                                ].decode("utf-8", errors="replace")
-                        for child in kt_node.children:
-                            res = extract_type_from_kt_node(child)
-                            if res:
-                                return res
-                        return None
-
-                    def collect_local_bindings(n):
-                        if n.type == "parameter":
-                            id_node = next(
-                                (c for c in n.children if c.type == "identifier"), None
-                            )
-                            type_node = next(
-                                (c for c in n.children if c.type == "user_type"), None
-                            )
-                            if id_node and type_node:
-                                var_name = source[
-                                    id_node.start_byte : id_node.end_byte
-                                ].decode("utf-8", errors="replace")
-                                t_name = extract_type_from_kt_node(type_node)
-                                if t_name:
-                                    local_bindings[var_name] = t_name
-                        elif n.type == "property_declaration":
-                            var_decl = next(
-                                (
-                                    c
-                                    for c in n.children
-                                    if c.type == "variable_declaration"
-                                ),
-                                None,
-                            )
-                            val_expr = next(
-                                (c for c in n.children if c.type == "call_expression"),
-                                None,
-                            )
-                            if var_decl:
-                                id_node = next(
-                                    (
-                                        c
-                                        for c in var_decl.children
-                                        if c.type == "identifier"
-                                    ),
-                                    None,
-                                )
-                                type_node = next(
-                                    (
-                                        c
-                                        for c in var_decl.children
-                                        if c.type == "user_type"
-                                    ),
-                                    None,
-                                )
-                                if id_node:
-                                    var_name = source[
-                                        id_node.start_byte : id_node.end_byte
-                                    ].decode("utf-8", errors="replace")
-                                    if type_node:
-                                        t_name = extract_type_from_kt_node(type_node)
-                                        if t_name:
-                                            local_bindings[var_name] = t_name
-                                    elif val_expr:
-                                        t_name = extract_type_from_kt_node(val_expr)
-                                        if t_name:
-                                            local_bindings[var_name] = t_name
-
-                        for child in n.children:
-                            if child.type not in (
-                                "function_declaration",
-                                "class_declaration",
-                                "object_declaration",
-                            ):
-                                collect_local_bindings(child)
-
-                    collect_local_bindings(node)
-
-                    result.nodes.append(
-                        NodeSchema(
-                            id=func_id,
-                            label=func_name,
-                            type=sym_type,
-                            source_file=rel_path,
-                            line_start=node.start_point[0] + 1,
-                            line_end=node.end_point[0] + 1,
-                            signature=self._get_signature(node, source),
-                            docstring=self._get_docstring(node, source),
-                            local_bindings=local_bindings,
-                        )
-                    )
-
-                    result.edges.append(
-                        EdgeSchema(
-                            source=parent_id, target=func_id, relation="contains"
-                        )
-                    )
-
-                    scope_stack.append((func_id, sym_type))
-                    pushed_scope = True
-
-            elif node_type == "import":
-                qual_id_node = next(
-                    (c for c in node.children if c.type == "qualified_identifier"), None
-                )
-                if qual_id_node:
-                    target = source[
-                        qual_id_node.start_byte : qual_id_node.end_byte
-                    ].decode("utf-8", errors="replace")
-                    is_wildcard = any(c.type == "*" for c in node.children)
-                    alias = None
-
-                    as_idx = next(
-                        (i for i, c in enumerate(node.children) if c.type == "as"), -1
-                    )
-                    if as_idx != -1 and as_idx + 1 < len(node.children):
-                        alias_node = node.children[as_idx + 1]
-                        if alias_node.type == "identifier":
-                            alias = source[
-                                alias_node.start_byte : alias_node.end_byte
-                            ].decode("utf-8", errors="replace")
-
-                    if is_wildcard:
-                        import_map = {"*": "*"}
-                    elif alias:
-                        last_part = target.split(".")[-1]
-                        import_map = {alias: last_part}
-                    else:
-                        last_part = target.split(".")[-1]
-                        import_map = {last_part: last_part}
-
-                    result.edges.append(
-                        EdgeSchema(
-                            source=file_node_id,
-                            target=target,
-                            relation="imports",
-                            import_map=import_map,
-                        )
-                    )
-
-            elif node_type == "call_expression":
-                func_node = None
-                for child in node.children:
-                    if child.type in ("identifier", "navigation_expression"):
-                        func_node = child
-                        break
-                if func_node:
-                    callee_name = source[
-                        func_node.start_byte : func_node.end_byte
-                    ].decode("utf-8", errors="replace")
-                    caller_id = get_current_parent_id()
-                    result.edges.append(
-                        EdgeSchema(
-                            source=caller_id, target=callee_name, relation="calls"
-                        )
-                    )
-
-            for child in node.children:
-                walk(child)
-
-            if pushed_scope:
-                scope_stack.pop()
-
-        walk(root)
+        visitor = KotlinVisitor(source, rel_path, result, self)
+        visitor.visit(root)
         return result

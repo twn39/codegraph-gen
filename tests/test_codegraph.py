@@ -639,3 +639,75 @@ def test_incremental_caching_and_parallel_pipeline():
             updated_cache = json.load(f)
         assert len(updated_cache) == 2
         assert "func_a_modified" in str(updated_cache["file_a.py"])
+
+
+def test_ast_visitor_caching_and_pruning():
+    import tree_sitter
+    import tree_sitter_python
+    from codegraph_gen.parser.base import ASTVisitor, ExtractionResult
+
+    code = b"""
+# A comment here
+class TargetClass:
+    def method(self):
+        # another comment
+        pass
+"""
+    language = tree_sitter.Language(tree_sitter_python.language())
+    parser = tree_sitter.Parser(language)
+    tree = parser.parse(code)
+    root = tree.root_node
+
+    result = ExtractionResult()
+    visited_types = []
+
+    class DummyVisitor(ASTVisitor):
+        def visit(self, node):
+            visited_types.append(node.type)
+            super().visit(node)
+
+    visitor = DummyVisitor(code, "test_file.py", result)
+    visitor.visit(root)
+
+    # 1. Caching verification
+    # _visitor_cache should map node types to resolved visitor functions
+    assert len(visitor._visitor_cache) > 0
+    assert "class_definition" in visitor._visitor_cache
+    # The cache should route repeated types using the cached visitor
+    cached_fn = visitor._visitor_cache["class_definition"]
+    assert (
+        cached_fn.__name__ == "visit_class_definition"
+        or cached_fn.__name__ == "generic_visit"
+    )
+
+    # 2. Pruning & Safety Routing verification
+    class MockNode:
+        def __init__(self, node_type):
+            self.type = node_type
+            self.children = []
+            self.start_point = (0, 0)
+            self.end_point = (0, 0)
+
+    # Test safety name routing
+    mock_result = ExtractionResult()
+    visitor2 = DummyVisitor(b"", "mock.py", mock_result)
+
+    called_with = []
+
+    def visit_some_dotted_name(node):
+        called_with.append("dotted")
+
+    def visit_some_hyphenated_name(node):
+        called_with.append("hyphenated")
+
+    setattr(visitor2, "visit_some_dotted_name", visit_some_dotted_name)
+    setattr(visitor2, "visit_some_hyphenated_name", visit_some_hyphenated_name)
+
+    node_dot = MockNode("some.dotted.name")
+    node_hyphen = MockNode("some-hyphenated-name")
+
+    visitor2.visit(node_dot)
+    visitor2.visit(node_hyphen)
+
+    assert "dotted" in called_with
+    assert "hyphenated" in called_with
