@@ -31,22 +31,21 @@
 
 ## 🛠️ 安装指南
 
-推荐使用 [uv](https://github.com/astral-sh/uv) 管理项目依赖与虚拟环境：
+推荐使用 [uv](https://github.com/astral-sh/uv) 直接安装工具：
 
 ```bash
-# 克隆仓库
-git clone <repository-url>
-cd codegraph-gen
-
-# 同步依赖并激活虚拟环境
-uv sync
-source .venv/bin/activate
-
 # 全局安装 (推荐)
-uv tool install --force --no-cache .
+uv tool install codegraph-gen
 ```
 
-### 2. 注入 AI Agent 斜杠命令集成
+如果需要在当前虚拟环境中作为库依赖安装：
+
+```bash
+# 安装至当前项目/环境
+uv pip install codegraph-gen
+```
+
+### 注册 AI Agent 斜杠命令
 
 `codegraph-gen` 支持一键将 `/codegraph` 自定义斜杠命令注册到您的 AI Agent（如 Codex 或 Antigravity）的全局配置中：
 
