@@ -41,6 +41,7 @@ LANGUAGE_EXTENSIONS = {
     "python": {".py"},
     "javascript": {".js", ".mjs", ".cjs"},
     "typescript": {".ts", ".tsx"},
+    "kotlin": {".kt", ".kts"},
     "go": {".go"},
     "rust": {".rs"},
     "swift": {".swift"},

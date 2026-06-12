@@ -397,3 +397,61 @@ class Caller {
         assert G.has_edge(
             "Caller.ts::Caller.run", "EdgeTTSPlayer.ts::EdgeTTSPlayer.play"
         )
+
+
+def test_kotlin_local_scope_type_binding():
+    from codegraph.parser.kotlin import KotlinParser
+    with tempfile.TemporaryDirectory() as tmpdir:
+        workspace = Path(tmpdir).resolve()
+
+        # 1. Define class AudioDecoderActor with decode method
+        decoder_file = workspace / "AudioDecoderActor.kt"
+        decoder_file.write_text("""
+class AudioDecoderActor {
+    fun decode(data: String) {}
+}
+""")
+
+        # 2. Define class EdgeTTSPlayer with play method
+        player_file = workspace / "EdgeTTSPlayer.kt"
+        player_file.write_text("""
+class EdgeTTSPlayer {
+    fun play() {}
+}
+""")
+
+        # 3. Define Caller with parameter and local variable bindings
+        caller_file = workspace / "Caller.kt"
+        caller_file.write_text("""
+class Caller {
+    fun run(player: EdgeTTSPlayer) {
+        val decoder: AudioDecoderActor = AudioDecoderActor()
+        val otherDecoder = AudioDecoderActor()
+        decoder.decode("test")
+        otherDecoder.decode("test2")
+        player.play()
+    }
+}
+""")
+
+        kt_parser = KotlinParser()
+        res_decoder = kt_parser.parse_file(decoder_file, workspace)
+        res_player = kt_parser.parse_file(player_file, workspace)
+        res_caller = kt_parser.parse_file(caller_file, workspace)
+
+        # Verify NodeSchema actually got local_bindings populated
+        caller_run_node = next((n for n in res_caller.nodes if n.label == "run"), None)
+        assert caller_run_node is not None
+        assert caller_run_node.local_bindings == {
+            "player": "EdgeTTSPlayer",
+            "decoder": "AudioDecoderActor",
+            "otherDecoder": "AudioDecoderActor"
+        }
+
+        # Build graph and check edges
+        G = build_graph([res_decoder, res_player, res_caller], workspace)
+
+        # Verify correct exact connections were made
+        assert G.has_edge("Caller.kt::Caller.run", "AudioDecoderActor.kt::AudioDecoderActor.decode")
+        assert G.has_edge("Caller.kt::Caller.run", "EdgeTTSPlayer.kt::EdgeTTSPlayer.play")
+

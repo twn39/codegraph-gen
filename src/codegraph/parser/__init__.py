@@ -5,6 +5,7 @@ from codegraph.parser.go import GoParser
 from codegraph.parser.rust import RustParser
 from codegraph.parser.swift import SwiftParser
 from codegraph.parser.cpp import CParser, CppParser
+from codegraph.parser.kotlin import KotlinParser
 
 PARSERS: dict[str, type[BaseParser]] = {
     "python": PythonParser,
@@ -15,6 +16,7 @@ PARSERS: dict[str, type[BaseParser]] = {
     "swift": SwiftParser,
     "c": CParser,
     "cpp": CppParser,
+    "kotlin": KotlinParser,
 }
 
 

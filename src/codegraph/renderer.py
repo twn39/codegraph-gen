@@ -110,6 +110,8 @@ class MarkdownRenderer:
             ".go": "go",
             ".rs": "rust",
             ".swift": "swift",
+            ".kt": "kotlin",
+            ".kts": "kotlin",
         }
         code_lang = lang_map.get(lang_ext, "")
 
