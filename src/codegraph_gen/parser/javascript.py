@@ -3,7 +3,12 @@ from pathlib import Path
 import tree_sitter
 import tree_sitter_javascript
 import tree_sitter_typescript
-from codegraph_gen.parser.base import BaseParser, ExtractionResult, NodeSchema, EdgeSchema
+from codegraph_gen.parser.base import (
+    BaseParser,
+    ExtractionResult,
+    NodeSchema,
+    EdgeSchema,
+)
 
 logger = logging.getLogger(__name__)
 

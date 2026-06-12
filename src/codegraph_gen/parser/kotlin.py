@@ -2,7 +2,12 @@ import logging
 from pathlib import Path
 import tree_sitter
 import tree_sitter_kotlin
-from codegraph_gen.parser.base import BaseParser, ExtractionResult, NodeSchema, EdgeSchema
+from codegraph_gen.parser.base import (
+    BaseParser,
+    ExtractionResult,
+    NodeSchema,
+    EdgeSchema,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -198,11 +203,7 @@ class KotlinParser(BaseParser):
                     def extract_type_from_kt_node(kt_node):
                         if kt_node.type == "user_type":
                             id_node = next(
-                                (
-                                    c
-                                    for c in kt_node.children
-                                    if c.type == "identifier"
-                                ),
+                                (c for c in kt_node.children if c.type == "identifier"),
                                 None,
                             )
                             if id_node:
@@ -210,14 +211,8 @@ class KotlinParser(BaseParser):
                                     id_node.start_byte : id_node.end_byte
                                 ].decode("utf-8", errors="replace")
                         elif kt_node.type == "call_expression":
-                            callee = kt_node.child_by_field_name(
-                                "constructor"
-                            ) or next(
-                                (
-                                    c
-                                    for c in kt_node.children
-                                    if c.type == "identifier"
-                                ),
+                            callee = kt_node.child_by_field_name("constructor") or next(
+                                (c for c in kt_node.children if c.type == "identifier"),
                                 None,
                             )
                             if callee:

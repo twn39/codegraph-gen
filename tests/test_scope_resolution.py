@@ -401,6 +401,7 @@ class Caller {
 
 def test_kotlin_local_scope_type_binding():
     from codegraph_gen.parser.kotlin import KotlinParser
+
     with tempfile.TemporaryDirectory() as tmpdir:
         workspace = Path(tmpdir).resolve()
 
@@ -445,13 +446,16 @@ class Caller {
         assert caller_run_node.local_bindings == {
             "player": "EdgeTTSPlayer",
             "decoder": "AudioDecoderActor",
-            "otherDecoder": "AudioDecoderActor"
+            "otherDecoder": "AudioDecoderActor",
         }
 
         # Build graph and check edges
         G = build_graph([res_decoder, res_player, res_caller], workspace)
 
         # Verify correct exact connections were made
-        assert G.has_edge("Caller.kt::Caller.run", "AudioDecoderActor.kt::AudioDecoderActor.decode")
-        assert G.has_edge("Caller.kt::Caller.run", "EdgeTTSPlayer.kt::EdgeTTSPlayer.play")
-
+        assert G.has_edge(
+            "Caller.kt::Caller.run", "AudioDecoderActor.kt::AudioDecoderActor.decode"
+        )
+        assert G.has_edge(
+            "Caller.kt::Caller.run", "EdgeTTSPlayer.kt::EdgeTTSPlayer.play"
+        )
