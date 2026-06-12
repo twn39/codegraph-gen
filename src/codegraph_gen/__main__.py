@@ -14,8 +14,15 @@ from codegraph_gen.config import CodegraphConfig, DEFAULT_EXCLUSIONS
 
 console = Console()
 
+try:
+    from importlib.metadata import version
+    __version__ = version("codegraph-gen")
+except Exception:
+    __version__ = "1.1.0"
+
 
 @click.group()
+@click.version_option(version=__version__, prog_name="codegraph")
 def cli():
     """codegraph - Build a Markdown knowledge graph of your codebase for AI analysis."""
     pass
@@ -291,13 +298,7 @@ Finally, reply to the user in English, summarizing:
 @cli.command()
 def info():
     """Prints tool info and supported languages."""
-    try:
-        from importlib.metadata import version
-
-        ver = version("codegraph-gen")
-    except Exception:
-        ver = "1.1.0"
-    console.print(f"[bold]codegraph v{ver}[/bold]")
+    console.print(f"[bold]codegraph v{__version__}[/bold]")
     console.print(
         "Supported languages: Python, JavaScript, TypeScript, Kotlin, Go, Rust, Swift, C, C++"
     )

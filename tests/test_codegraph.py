@@ -714,3 +714,15 @@ class TargetClass:
 
     assert "dotted" in called_with
     assert "hyphenated" in called_with
+
+
+def test_cli_version():
+    from click.testing import CliRunner
+    from codegraph_gen.__main__ import cli, __version__
+
+    runner = CliRunner()
+    result = runner.invoke(cli, ["--version"])
+    assert result.exit_code == 0
+    assert "codegraph, version" in result.output
+    assert __version__ in result.output
+
