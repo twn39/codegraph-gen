@@ -19,6 +19,10 @@ class LanguageResolverStrategy(ABC):
         return set()
 
     @property
+    def stdlib_modules(self) -> set[str]:
+        return set()
+
+    @property
     def import_search_suffixes(self) -> list[str]:
         # Suffixes to try when doing relative path imports.
         # Defaults to the strategy's primary file extensions.
@@ -26,6 +30,9 @@ class LanguageResolverStrategy(ABC):
 
     def is_builtin(self, symbol: str) -> bool:
         return symbol in self.builtin_functions
+
+    def is_stdlib(self, symbol: str) -> bool:
+        return symbol in self.stdlib_modules
 
     def extract_return_type(self, signature: str) -> str | None:
         return None
@@ -95,7 +102,8 @@ class PythonStrategy(LanguageResolverStrategy):
         "id",
         "hash",
         "input",
-        # Python Standard Library / Built-in packages/modules
+    }
+    stdlib_modules = {
         "os",
         "sys",
         "json",
@@ -169,8 +177,9 @@ class JavaScriptStrategy(LanguageResolverStrategy):
         "clearTimeout",
         "setInterval",
         "clearInterval",
-        # Node/JS environment globals and standard modules
         "global",
+    }
+    stdlib_modules = {
         "fs",
         "path",
     }
@@ -210,6 +219,11 @@ class KotlinStrategy(LanguageResolverStrategy):
         "check",
         "error",
     }
+    stdlib_modules = {
+        "java",
+        "kotlin",
+        "kotlinx",
+    }
 
     def extract_return_type(self, signature: str) -> str | None:
         last_paren = signature.rfind(")")
@@ -245,7 +259,8 @@ class GoStrategy(LanguageResolverStrategy):
         "real",
         "imag",
         "close",
-        # Go Standard Library package names
+    }
+    stdlib_modules = {
         "fmt",
         "sync",
         "context",
@@ -305,6 +320,11 @@ class RustStrategy(LanguageResolverStrategy):
         "Err",
         "Default",
     }
+    stdlib_modules = {
+        "std",
+        "core",
+        "alloc",
+    }
 
     def extract_return_type(self, signature: str) -> str | None:
         return _extract_arrow_return_type(signature)
@@ -331,6 +351,13 @@ class SwiftStrategy(LanguageResolverStrategy):
         "fatalError",
         "precondition",
         "assert",
+    }
+    stdlib_modules = {
+        "Foundation",
+        "UIKit",
+        "AppKit",
+        "Combine",
+        "SwiftUI",
     }
 
     def has_package_sibling_scope(self) -> bool:
@@ -404,7 +431,6 @@ class CppStrategy(CStrategy):
     name = "cpp"
     file_extensions = {".cpp", ".cc", ".cxx", ".hpp", ".hxx"}
     builtin_functions = CStrategy.builtin_functions | {
-        "std",
         "cout",
         "cin",
         "endl",
@@ -418,6 +444,9 @@ class CppStrategy(CStrategy):
         "make_shared",
         "make_unique",
         "move",
+    }
+    stdlib_modules = {
+        "std",
     }
 
 

@@ -421,8 +421,13 @@ def resolve_global_fallback(ctx: ResolutionContext) -> str | _StopResolution | N
     source_file = ctx.source_file
     graph_nodes = ctx.graph_nodes
 
-    # Re-check with strategy (hardcoded blocklist in old code is removed)
-    if ctx.strategy.is_builtin(main_symbol):
+    # Prevent global guessing for built-ins, standard library modules, or imported symbols
+    # that could not be resolved locally (i.e. external dependencies).
+    if (
+        ctx.strategy.is_builtin(main_symbol)
+        or ctx.strategy.is_stdlib(main_symbol)
+        or main_symbol in ctx.scope.imported_symbols
+    ):
         return None
 
     search_label = parts[-1] if len(parts) > 1 else main_symbol

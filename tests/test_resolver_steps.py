@@ -211,3 +211,57 @@ def test_resolve_global_fallback():
         graph_nodes=graph_nodes,
     )
     assert resolve_global_fallback(ctx) == "other.py::UniqueSymbol"
+
+
+def test_resolve_builtin_vs_stdlib_shadowing():
+    # Case 1: errors is a Go stdlib module. It should not be blocked by guard_builtin
+    ctx = make_test_context(
+        callee_name="errors.New",
+        parts=("errors", "New"),
+        strategy_name="go"
+    )
+    assert guard_builtin(ctx) is None
+
+    # Case 2: Local shadowing of stdlib modules.
+    # If errors is explicitly imported as a local path, resolve_explicit_imports should resolve it.
+    graph_nodes = {
+        "myerrors.go": {"type": "file"},
+        "myerrors.go::New": {"type": "function", "label": "New", "source_file": "myerrors.go"},
+    }
+    ctx = make_test_context(
+        callee_name="errors.New",
+        parts=("errors", "New"),
+        strategy_name="go",
+        imported_symbols={"errors": ("myerrors.go", "*")},
+        node_ids=set(graph_nodes.keys()),
+        graph_nodes=graph_nodes,
+    )
+    assert resolve_explicit_imports(ctx) == "myerrors.go::New"
+
+
+def test_resolve_global_fallback_stdlib_and_external_imports():
+    # Case 1: errors is a Go stdlib. If it is not resolved locally, resolve_global_fallback should return None (intercepted)
+    ctx = make_test_context(
+        callee_name="errors.New",
+        parts=("errors", "New"),
+        strategy_name="go",
+        global_symbol_map={"New": ["other.go::New"]}
+    )
+    assert resolve_global_fallback(ctx) is None
+
+    # Case 2: requests is a Python third-party library.
+    # It is in imported_symbols, but we have no local source file for it.
+    # resolve_global_fallback should intercept and return None instead of guessing "get" from other.py
+    graph_nodes = {
+        "other.py::get": {"type": "function", "label": "get", "source_file": "other.py"}
+    }
+    ctx = make_test_context(
+        callee_name="requests.get",
+        parts=("requests", "get"),
+        strategy_name="python",
+        imported_symbols={"requests": ("requests", "requests")},
+        global_symbol_map={"get": ["other.py::get"]},
+        node_ids=set(graph_nodes.keys()),
+        graph_nodes=graph_nodes,
+    )
+    assert resolve_global_fallback(ctx) is None
