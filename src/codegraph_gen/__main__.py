@@ -295,9 +295,41 @@ Build a codebase knowledge graph using `codegraph` for any folder, cluster symbo
 /codegraph --exclude <pattern>                        # Build and exclude specific folders/patterns
 ```
 
+### Project Configuration File (`.codegraphrc`)
+
+Projects can place a `.codegraphrc` JSON file in their root directory to persist build settings. When present, `codegraph build` automatically loads it — no extra flags needed.
+
+```json
+{
+  "include": ["src", "tests"],
+  "exclude": ["dist", "third_party"],
+  "output": ".codegraph",
+  "languages": ["python", "typescript"],
+  "workers": 4,
+  "cache": true
+}
+```
+
+| Field | Type | Description |
+|---|---|---|
+| `include` | `string[]` | Subdirectory whitelist — only these dirs are scanned. Omit to scan the entire workspace. |
+| `exclude` | `string[]` | Extra directory names to exclude (appended to built-in defaults). |
+| `output` | `string` | Output directory, relative to workspace root. Default: `.codegraph` |
+| `languages` | `string[]` | Language whitelist. Omit to include all supported languages. |
+| `workers` | `int` | Number of parallel worker processes. |
+| `cache` | `bool` | Enable incremental parse cache. Default: `true` |
+
+CLI flags always take priority over `.codegraphrc` values. `--exclude` is cumulative (appends to the config file list).
+
 ## What You Must Do When Invoked
 
-If the user invoked `/codegraph` with no path, do not ask the user for a path. Instead of scanning the entire project root directory `.` (which may include non-essential scripts, docs, or huge subfolders), you MUST prioritize targeting the primary source directory (e.g. `src/`, `lib/`, `app/`) and test directory (e.g. `tests/`, `test/`).
+### Check for a project config file first
+
+Before deciding which directory or flags to use, check if a `.codegraphrc` file exists in the project root:
+- If it exists, read it to understand which directories the project wants scanned (`include`) and excluded (`exclude`). Honor those settings — do NOT override them with your own guesses.
+- If it does NOT exist, follow the fallback rules below.
+
+If the user invoked `/codegraph` with no path and there is NO `.codegraphrc`, do not ask the user for a path. Instead, prioritize targeting the primary source directory (e.g. `src/`, `lib/`, `app/`) and test directory (e.g. `tests/`, `test/`).
 - If specific source or test folders are found, run the build targeting those folders, or build the root `.` but exclude other non-code/non-test directories (e.g., `docs/`, `scripts/`, `examples/`) using the `--exclude` flag to keep the graph focused on code and tests.
 - Otherwise, default to `.` (current directory).
 
@@ -326,7 +358,7 @@ echo "Using codegraph binary: $CODEGRAPH_BIN"
 
 ### Step 2 - Build the Knowledge Graph
 
-Run the resolved `$CODEGRAPH_BIN` on the specified directory:
+Run the resolved `$CODEGRAPH_BIN` on the specified directory. If a `.codegraphrc` is present in the project root, simply run without extra flags — the config file is picked up automatically:
 ```bash
 $CODEGRAPH_BIN build INPUT_PATH
 # Or with additional exclude arguments if provided by the user
