@@ -1,0 +1,8 @@
+{
+  "include": ["src", "tests"],
+  "exclude": ["third_party", "dist"],
+  "output": ".codegraph",
+  "languages": ["python"],
+  "workers": 4,
+  "cache": true
+}

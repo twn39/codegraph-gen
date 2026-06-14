@@ -9,10 +9,19 @@ def discover_files(
     workspace_dir: Path,
     languages: set[str],
     exclusions: set[str],
+    include_dirs: list[Path] | None = None,
 ) -> list[tuple[Path, str]]:
     """
     Recursively discovers source files in the workspace directory.
     Filters by allowed languages and ignores files/directories in exclusions.
+
+    Args:
+        workspace_dir: Root of the workspace (used to compute relative paths / node IDs).
+        languages: Set of language names to include.
+        exclusions: Directory names/patterns to exclude.
+        include_dirs: Optional whitelist of absolute directories to scan.
+                      When provided, only these directories are scanned.
+                      When None, the entire workspace_dir is scanned.
 
     Returns:
         List of tuples: (absolute_file_path, language_name)
@@ -59,5 +68,19 @@ def discover_files(
         except Exception as e:
             logger.error(f"Error scanning {directory}: {e}")
 
-    scan_dir(workspace)
+    # Determine which root directories to scan
+    if include_dirs:
+        for root in include_dirs:
+            root = root.resolve()
+            if not root.exists():
+                logger.warning(f"include_dirs entry does not exist, skipping: {root}")
+                continue
+            if not root.is_dir():
+                logger.warning(f"include_dirs entry is not a directory, skipping: {root}")
+                continue
+            scan_dir(root)
+    else:
+        scan_dir(workspace)
+
     return found_files
+

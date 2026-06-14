@@ -10,7 +10,13 @@ from rich.progress import (
     MofNCompleteColumn,
 )
 
-from codegraph_gen.config import CodegraphConfig, DEFAULT_EXCLUSIONS
+from codegraph_gen.config import (
+    CodegraphConfig,
+    DEFAULT_EXCLUSIONS,
+    LANGUAGE_EXTENSIONS,
+    load_project_config,
+    PROJECT_CONFIG_FILE,
+)
 
 console = Console()
 
@@ -76,26 +82,96 @@ def build(
     """Parses the codebase in SRC_DIR and exports the Markdown graph vault."""
     console.print("[bold blue]Starting codegraph analysis...[/bold blue]")
 
-    # 1. Prepare configuration
+    workspace = src_dir.resolve()
+
+    # ── Load project config file (.codegraphrc) ────────────────────────────
+    project_cfg = load_project_config(workspace)
+
+    if project_cfg is not None:
+        console.print(
+            f"[dim]📄 Found project config: [underline]{workspace / PROJECT_CONFIG_FILE}[/underline][/dim]"
+        )
+
+    # ── Merge: CLI args take priority over .codegraphrc ────────────────────
+    # Exclusions: default set + .codegraphrc extras + CLI --exclude (cumulative)
     exclusions = set(DEFAULT_EXCLUSIONS)
+    if project_cfg and project_cfg.exclude:
+        exclusions.update(project_cfg.exclude)
     if exclude:
         exclusions.update(exclude)
 
-    import os
+    # Output directory: CLI --output > .codegraphrc output > default
+    if output != Path(".codegraph"):
+        # User explicitly passed --output on CLI
+        resolved_output = output.resolve()
+    elif project_cfg and project_cfg.output != ".codegraph":
+        resolved_output = (workspace / project_cfg.output).resolve()
+    else:
+        resolved_output = (workspace / ".codegraph").resolve()
 
+    # Languages: CLI has no language filter option yet; use .codegraphrc if present
+    all_languages = set(LANGUAGE_EXTENSIONS.keys())
+    if project_cfg and project_cfg.languages:
+        valid = {lang for lang in project_cfg.languages if lang in all_languages}
+        invalid = set(project_cfg.languages) - valid
+        if invalid:
+            console.print(
+                f"[yellow]⚠ .codegraphrc: unknown languages ignored: {', '.join(sorted(invalid))}[/yellow]"
+            )
+        languages = valid if valid else all_languages
+    else:
+        languages = all_languages
+
+    # Workers: CLI --workers > .codegraphrc workers > CPU count
+    import os
     if not parallel:
         max_workers = 1
     elif workers is not None:
         max_workers = workers
+    elif project_cfg and project_cfg.workers is not None:
+        max_workers = project_cfg.workers
     else:
         max_workers = os.cpu_count() or 4
 
+    # Cache: CLI --cache/--no-cache flag always applies; .codegraphrc only when CLI default
+    # (click default for cache is True, so we trust project_cfg when CLI wasn't explicitly set)
+    effective_cache = cache if cache is not None else (project_cfg.cache if project_cfg else True)
+
+    # Include dirs: from .codegraphrc include whitelist (no CLI equivalent)
+    include_dirs = None
+    if project_cfg and project_cfg.include:
+        include_dirs = []
+        for subdir in project_cfg.include:
+            resolved = (workspace / subdir).resolve()
+            if not resolved.exists():
+                console.print(
+                    f"[yellow]⚠ .codegraphrc include '{subdir}' does not exist, skipping.[/yellow]"
+                )
+            else:
+                include_dirs.append(resolved)
+        if not include_dirs:
+            include_dirs = None  # All entries invalid → fall back to full scan
+
+    # Print effective config summary when a project config was loaded
+    if project_cfg is not None:
+        parts = []
+        if include_dirs:
+            parts.append(f"include: {', '.join(p.name for p in include_dirs)}")
+        if project_cfg.exclude:
+            parts.append(f"extra exclude: {', '.join(project_cfg.exclude)}")
+        if project_cfg.languages:
+            parts.append(f"languages: {', '.join(sorted(languages))}")
+        if parts:
+            console.print(f"[dim]   {' | '.join(parts)}[/dim]")
+
     config = CodegraphConfig(
-        workspace_dir=src_dir.resolve(),
-        output_dir=output.resolve(),
+        workspace_dir=workspace,
+        output_dir=resolved_output,
         exclusions=exclusions,
+        languages=languages,
         max_workers=max_workers,
-        use_cache=cache,
+        use_cache=effective_cache,
+        include_dirs=include_dirs,
     )
 
     from codegraph_gen.engine import CodegraphEngine, PipelineStage

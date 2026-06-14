@@ -1,7 +1,14 @@
+import json
+import logging
 import os
 from pathlib import Path
+from typing import Optional
 from pydantic import BaseModel, Field
 from codegraph_gen.schema import ExtractionResult
+
+logger = logging.getLogger(__name__)
+
+PROJECT_CONFIG_FILE = ".codegraphrc"
 
 # Default exclusions for files and directories we want to ignore
 DEFAULT_EXCLUSIONS = {
@@ -59,6 +66,50 @@ class CacheEntry(BaseModel):
     result: ExtractionResult
 
 
+class ProjectConfig(BaseModel):
+    """Schema for the .codegraphrc project-level configuration file."""
+
+    include: Optional[list[str]] = None
+    """Subdirectory whitelist (relative to workspace root). None = scan entire workspace."""
+
+    exclude: list[str] = []
+    """Extra directory names/patterns to exclude (appended to DEFAULT_EXCLUSIONS)."""
+
+    output: str = ".codegraph"
+    """Output directory path (relative to workspace root)."""
+
+    languages: Optional[list[str]] = None
+    """Language whitelist. None = all supported languages."""
+
+    workers: Optional[int] = None
+    """Number of parallel worker processes. None = use CPU count."""
+
+    cache: bool = True
+    """Enable incremental parse cache."""
+
+
+def load_project_config(workspace_dir: Path) -> Optional[ProjectConfig]:
+    """
+    Loads .codegraphrc from the workspace root directory.
+    Returns None (silently) if the file does not exist.
+    Returns None (with a warning) if the file is malformed.
+    No upward traversal — the file must be in workspace_dir itself.
+    """
+    config_path = workspace_dir / PROJECT_CONFIG_FILE
+    if not config_path.is_file():
+        return None
+    try:
+        data = json.loads(config_path.read_text(encoding="utf-8"))
+        cfg = ProjectConfig.model_validate(data)
+        logger.info(f"Loaded project config from {config_path}")
+        return cfg
+    except json.JSONDecodeError as e:
+        logger.warning(f"{PROJECT_CONFIG_FILE}: JSON parse error — {e}. Using defaults.")
+    except Exception as e:
+        logger.warning(f"{PROJECT_CONFIG_FILE}: Failed to load — {e}. Using defaults.")
+    return None
+
+
 class CodegraphConfig(BaseModel):
     """Configuration class for codegraph parsing and exporting."""
 
@@ -68,6 +119,8 @@ class CodegraphConfig(BaseModel):
     languages: set[str] = Field(default_factory=lambda: set(LANGUAGE_EXTENSIONS.keys()))
     max_workers: int = Field(default_factory=lambda: os.cpu_count() or 4)
     use_cache: bool = Field(default=True)
+    include_dirs: Optional[list[Path]] = Field(default=None)
+    """Absolute paths of subdirectories to scan. None = scan entire workspace_dir."""
 
     @property
     def absolute_output_dir(self) -> Path:

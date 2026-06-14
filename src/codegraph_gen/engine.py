@@ -100,7 +100,7 @@ class CodegraphEngine:
         if progress_callback:
             progress_callback(PipelineStage.DISCOVERING, None, 0, 0)
         files = discover_files(
-            config.workspace_dir, config.languages, config.exclusions
+            config.workspace_dir, config.languages, config.exclusions, config.include_dirs
         )
         if not files:
             logger.warning("No supported files found.")
