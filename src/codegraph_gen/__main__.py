@@ -404,6 +404,53 @@ Finally, reply to the user in English, summarizing:
 
 
 @cli.command()
+@click.argument(
+    "src_dir",
+    type=click.Path(exists=True, file_okay=False, path_type=Path),
+    default=".",
+)
+@click.option(
+    "--output",
+    "-o",
+    type=click.Path(path_type=Path),
+    default=Path(".codegraph"),
+    help="Directory where the Markdown vault was written.",
+)
+@click.option(
+    "--open/--no-open",
+    "open_browser",
+    default=True,
+    help="Automatically open the interactive HTML page in the browser.",
+)
+def visualize(src_dir: Path, output: Path, open_browser: bool):
+    """Generates an interactive Plotly-based HTML visualization of the graph."""
+    import sys
+    console.print("[bold blue]Generating interactive graph visualization...[/bold blue]")
+
+    workspace = src_dir.resolve()
+    
+    # Resolve output directory using same logic as build
+    project_cfg = load_project_config(workspace)
+    if output != Path(".codegraph"):
+        resolved_output = output.resolve()
+    elif project_cfg and project_cfg.output != ".codegraph":
+        resolved_output = (workspace / project_cfg.output).resolve()
+    else:
+        resolved_output = (workspace / ".codegraph").resolve()
+
+    try:
+        from codegraph_gen.visualizer import generate_visualization
+        html_path = generate_visualization(workspace, resolved_output, open_browser=open_browser)
+        console.print(f"[bold green]Success![/bold green] Interactive graph exported to: [bold underline]{html_path}[/bold underline]")
+    except ImportError as e:
+        console.print(f"[bold red]Error: {e}[/bold red]")
+        sys.exit(1)
+    except Exception as e:
+        console.print(f"[bold red]Error generating visualization: {e}[/bold red]")
+        sys.exit(1)
+
+
+@cli.command()
 def info():
     """Prints tool info and supported languages."""
     console.print(f"[bold]codegraph v{__version__}[/bold]")
