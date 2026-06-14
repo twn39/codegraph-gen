@@ -95,6 +95,30 @@ class PythonStrategy(LanguageResolverStrategy):
         "id",
         "hash",
         "input",
+        # Python Standard Library / Built-in packages/modules
+        "os",
+        "sys",
+        "json",
+        "time",
+        "math",
+        "re",
+        "pathlib",
+        "logging",
+        "subprocess",
+        "shutil",
+        "hashlib",
+        "urllib",
+        "socket",
+        "threading",
+        "multiprocessing",
+        "typing",
+        "collections",
+        "itertools",
+        "functools",
+        "logger",
+        "log",
+        "pytest",
+        "unittest",
     }
 
     def extract_return_type(self, signature: str) -> str | None:
@@ -145,6 +169,10 @@ class JavaScriptStrategy(LanguageResolverStrategy):
         "clearTimeout",
         "setInterval",
         "clearInterval",
+        # Node/JS environment globals and standard modules
+        "global",
+        "fs",
+        "path",
     }
 
 
@@ -217,6 +245,20 @@ class GoStrategy(LanguageResolverStrategy):
         "real",
         "imag",
         "close",
+        # Go Standard Library package names
+        "fmt",
+        "sync",
+        "context",
+        "strings",
+        "bytes",
+        "errors",
+        "net",
+        "http",
+        "os",
+        "io",
+        "bufio",
+        "strconv",
+        "time",
     }
 
     def has_package_sibling_scope(self) -> bool:

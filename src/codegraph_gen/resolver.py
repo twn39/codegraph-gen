@@ -1,5 +1,6 @@
 import logging
 from pathlib import Path
+from types import MappingProxyType
 import networkx as nx
 from codegraph_gen.schema import ExtractionResult
 from codegraph_gen.resolver_strategy import (
@@ -7,78 +8,10 @@ from codegraph_gen.resolver_strategy import (
     get_strategy_by_name,
     LanguageResolverStrategy,
 )
+from codegraph_gen.resolver_context import ResolutionContext, STOP, _StopResolution
+from codegraph_gen.resolver_steps import DEFAULT_RESOLVER_CHAIN, ResolverFn
 
 logger = logging.getLogger(__name__)
-
-# Common builtin/standard library method names to avoid incorrect resolution during global fallback
-COMMON_BUILTIN_METHODS: set[str] = {
-    "append",
-    "decode",
-    "encode",
-    "insert",
-    "remove",
-    "contains",
-    "push",
-    "pop",
-    "split",
-    "join",
-    "map",
-    "filter",
-    "reduce",
-    "forEach",
-    "sorted",
-    "count",
-    "length",
-    "size",
-    "isEmpty",
-    "resume",
-    "cancel",
-    "suspend",
-    "start",
-    "stop",
-    "send",
-    "receive",
-    "len",
-    "new",
-    "is_empty",
-    "clone",
-    "default",
-    "parse",
-    "format",
-    "read",
-    "write",
-    "close",
-    "flush",
-    "to_string",
-    "to_str",
-    "as_str",
-    "as_ref",
-    "as_mut",
-    "unwrap",
-    "expect",
-    "iter",
-    "iter_mut",
-    "into_iter",
-    "next",
-    "into",
-    "from",
-    "ok",
-    "err",
-    "clear",
-    "get",
-    "set",
-    "add",
-    "keys",
-    "values",
-    "items",
-    "update",
-    "copy",
-    "find",
-    "index",
-    "last",
-    "first",
-}
-
 
 class FileSymbolScope:
     def __init__(self, file_path: str, language: str):
@@ -232,343 +165,67 @@ class TypeResolver:
 
         return None
 
-    def _resolve_builtin(self, lang: str, main_symbol: str) -> bool:
-        return get_strategy_by_name(lang).is_builtin(main_symbol)
-
-    def _resolve_local_binding(
+    def resolve_symbol(
         self,
         caller_id: str,
-        source_file: str,
-        strategy: LanguageResolverStrategy,
-        scope: FileSymbolScope,
-        main_symbol: str,
-        parts: list[str],
-        rest_of_callee: str,
+        callee_name: str,
+        chain: list[ResolverFn] | None = None,
     ) -> str | None:
+        """
+        Resolve a callee symbol reference to a graph node ID.
+
+        All resolution logic is delegated to the resolver chain
+        (``DEFAULT_RESOLVER_CHAIN`` by default).  An alternative chain can
+        be injected via the ``chain`` parameter — useful for testing
+        individual steps or adding language-specific steps.
+
+        Returns the resolved node ID, or ``None`` if resolution fails.
+        """
         caller_data = self.G.nodes.get(caller_id)
         if not caller_data:
             return None
-        local_bindings = caller_data.get("local_bindings", {})
-        receiver_type = local_bindings[main_symbol]
-        resolved_class_id = None
 
-        if receiver_type in self.node_ids:
-            resolved_class_id = receiver_type
-        elif f"{source_file}::{receiver_type}" in self.node_ids:
-            resolved_class_id = f"{source_file}::{receiver_type}"
-        elif receiver_type in scope.imported_symbols:
-            target_file_id, original_name = scope.imported_symbols[receiver_type]
-            resolved_class_id = f"{target_file_id}::{original_name}"
-        elif strategy.has_package_sibling_scope():
-            caller_dir = Path(source_file).parent
-            for nid in self.node_ids:
-                ndata = self.G.nodes[nid]
-                if (
-                    ndata.get("type") in ("class", "struct", "interface", "enum")
-                    and ndata.get("label") == receiver_type
-                ):
-                    node_file = ndata.get("source_file", "")
-                    if node_file and Path(node_file).parent == caller_dir:
-                        resolved_class_id = nid
-                        break
-
-        # Fallback search for the class/struct definition
-        if not resolved_class_id:
-            for nid in self.node_ids:
-                ndata = self.G.nodes[nid]
-                if (
-                    ndata.get("type") in ("class", "struct", "interface", "enum")
-                    and ndata.get("label") == receiver_type
-                ):
-                    resolved_class_id = nid
-                    break
-
-        if resolved_class_id:
-            target_method_id = f"{resolved_class_id}.{rest_of_callee}"
-            if target_method_id in self.node_ids:
-                return target_method_id
-            target_method_id = f"{resolved_class_id}.{parts[-1]}"
-            if target_method_id in self.node_ids:
-                return target_method_id
-
-            method_name = parts[-1]
-            for nid in self.node_ids:
-                ndata = self.G.nodes[nid]
-                if (
-                    ndata.get("type") in ("method", "function")
-                    and ndata.get("label") == method_name
-                ):
-                    parent_class_part = nid.rsplit(".", 1)[0] if "." in nid else ""
-                    parent_class_name = (
-                        parent_class_part.rsplit("::", 1)[-1]
-                        if "::" in parent_class_part
-                        else parent_class_part
-                    )
-                    if parent_class_name == receiver_type or parent_class_name.endswith(
-                        f".{receiver_type}"
-                    ):
-                        return nid
-        return None
-
-    def _resolve_self_reference(
-        self, caller_id: str, parts: list[str], rest_of_callee: str
-    ) -> str | None:
-        if "." in caller_id:
-            parent_class_id = caller_id.rsplit(".", 1)[0]
-            if rest_of_callee:
-                target_candidate = f"{parent_class_id}.{rest_of_callee}"
-                if target_candidate in self.node_ids:
-                    return target_candidate
-                target_candidate = f"{parent_class_id}.{parts[-1]}"
-                if target_candidate in self.node_ids:
-                    return target_candidate
-        return None
-
-    def _resolve_current_class_context(
-        self, caller_id: str, main_symbol: str, parts: list[str], rest_of_callee: str
-    ) -> str | None:
-        if "." in caller_id:
-            parent_class_id = caller_id.rsplit(".", 1)[0]
-            target_candidate = f"{parent_class_id}.{main_symbol}"
-            if target_candidate in self.node_ids:
-                if rest_of_callee:
-                    sub_target = f"{target_candidate}.{rest_of_callee}"
-                    if sub_target in self.node_ids:
-                        return sub_target
-                return target_candidate
-        return None
-
-    def _resolve_file_level_scope(
-        self, source_file: str, main_symbol: str, parts: list[str], rest_of_callee: str
-    ) -> str | None:
-        file_candidate = f"{source_file}::{main_symbol}"
-        if file_candidate in self.node_ids:
-            if rest_of_callee:
-                sub_target = f"{file_candidate}.{rest_of_callee}"
-                if sub_target in self.node_ids:
-                    return sub_target
-            return file_candidate
-        return None
-
-    def _resolve_package_siblings(
-        self, source_file: str, main_symbol: str, parts: list[str], rest_of_callee: str
-    ) -> str | None:
-        caller_dir = Path(source_file).parent
-        for nid in self.node_ids:
-            ndata = self.G.nodes[nid]
-            if ndata.get("type") == "file":
-                continue
-            node_file = ndata.get("source_file", "")
-            if node_file and Path(node_file).parent == caller_dir:
-                if nid.endswith(f"::{main_symbol}"):
-                    if rest_of_callee:
-                        sub_target = f"{nid}.{rest_of_callee}"
-                        if sub_target in self.node_ids:
-                            return sub_target
-                    return nid
-        return None
-
-    def _resolve_explicit_imports(
-        self,
-        scope: FileSymbolScope,
-        main_symbol: str,
-        parts: list[str],
-        rest_of_callee: str,
-    ) -> str | None:
-        target_file_id, original_name = scope.imported_symbols[main_symbol]
-        if original_name == "*" or original_name == Path(target_file_id).stem:
-            if rest_of_callee:
-                target_candidate = f"{target_file_id}::{rest_of_callee}"
-                if target_candidate in self.node_ids:
-                    return target_candidate
-                for nid in self.node_ids:
-                    if self.G.nodes[nid].get(
-                        "source_file"
-                    ) == target_file_id and nid.endswith(f".{parts[-1]}"):
-                        return nid
-            else:
-                target_candidate = f"{target_file_id}::{main_symbol}"
-                if target_candidate in self.node_ids:
-                    return target_candidate
-                return target_file_id
-        else:
-            target_candidate = f"{target_file_id}::{original_name}"
-            if target_candidate in self.node_ids:
-                if rest_of_callee:
-                    sub_target = f"{target_candidate}.{rest_of_callee}"
-                    if sub_target in self.node_ids:
-                        return sub_target
-                return target_candidate
-            return target_candidate
-        return None
-
-    def _resolve_wildcard_imports(
-        self,
-        scope: FileSymbolScope,
-        main_symbol: str,
-        parts: list[str],
-        rest_of_callee: str,
-    ) -> str | None:
-        for target_file_id in scope.wildcard_imports:
-            target_candidate = f"{target_file_id}::{main_symbol}"
-            if target_candidate in self.node_ids:
-                if rest_of_callee:
-                    sub_target = f"{target_candidate}.{rest_of_callee}"
-                    if sub_target in self.node_ids:
-                        return sub_target
-                return target_candidate
-        return None
-
-    def _resolve_global_fallback(
-        self, source_file: str, main_symbol: str, parts: list[str]
-    ) -> str | None:
-        if main_symbol in {
-            "os",
-            "sys",
-            "json",
-            "time",
-            "math",
-            "re",
-            "pathlib",
-            "logging",
-            "subprocess",
-            "shutil",
-            "hashlib",
-            "urllib",
-            "socket",
-            "threading",
-            "multiprocessing",
-            "typing",
-            "collections",
-            "itertools",
-            "functools",
-            "logger",
-            "log",
-            "console",
-            "pytest",
-            "unittest",
-            "fmt",
-            "sync",
-            "context",
-            "strings",
-            "bytes",
-            "errors",
-            "net",
-            "http",
-            "process",
-            "document",
-            "window",
-            "global",
-            "fs",
-            "path",
-            "std",
-            "core",
-            "env",
-            "Logger",
-        } or any(p in {"logger", "log", "logging", "console"} for p in parts):
-            return None
-
-        search_label = parts[-1] if len(parts) > 1 else main_symbol
-        if len(parts) > 1 and search_label in COMMON_BUILTIN_METHODS:
-            return None
-
-        candidates = self.global_symbol_map.get(search_label, [])
-        if len(candidates) == 1:
-            return candidates[0]
-        elif len(candidates) > 1:
-            caller_parent_dir = Path(source_file).parent
-            near_candidates = [
-                c
-                for c in candidates
-                if Path(self.G.nodes[c]["source_file"]).parent == caller_parent_dir
-            ]
-            if len(near_candidates) == 1:
-                return near_candidates[0]
-        return None
-
-    def resolve_symbol(self, caller_id: str, callee_name: str) -> str | None:
-        caller_data = self.G.nodes.get(caller_id)
-        if not caller_data:
-            return None
         source_file = caller_data["source_file"]
-        strategy = self.file_strategies.get(
-            source_file, get_strategy_for_file(source_file)
-        )
-        callee_clean = callee_name.replace("::", ".")
-        parts = [p.strip() for p in callee_clean.split(".") if p.strip()]
-        if not parts:
-            return None
-
-        main_symbol = parts[0]
-        rest_of_callee = callee_clean.split(".", 1)[1] if len(parts) > 1 else ""
-
-        # 1. Builtins / Stdlib Check
-        if strategy.is_builtin(main_symbol):
-            return None
-
         scope = self.scopes.get(source_file)
         if not scope:
             return None
 
-        # 2. Local Scope Type Binding Resolution
-        local_bindings = caller_data.get("local_bindings", {})
-        if len(parts) > 1 and main_symbol in local_bindings:
-            res = self._resolve_local_binding(
-                caller_id,
-                source_file,
-                strategy,
-                scope,
-                main_symbol,
-                parts,
-                rest_of_callee,
-            )
-            if res:
-                return res
+        strategy = self.file_strategies.get(
+            source_file, get_strategy_for_file(source_file)
+        )
+        callee_clean = callee_name.replace("::", ".")
+        parts_list = [p.strip() for p in callee_clean.split(".") if p.strip()]
+        if not parts_list:
             return None
 
-        # 3. Local Lexical Scope (self / this / cls)
-        if main_symbol in ("self", "this", "cls"):
-            res = self._resolve_self_reference(caller_id, parts, rest_of_callee)
-            if res:
-                return res
-
-        # 4. Inside Current Class Context
-        res = self._resolve_current_class_context(
-            caller_id, main_symbol, parts, rest_of_callee
+        ctx = ResolutionContext(
+            caller_id=caller_id,
+            source_file=source_file,
+            callee_name=callee_name,
+            parts=tuple(parts_list),
+            main_symbol=parts_list[0],
+            rest_of_callee=callee_clean.split(".", 1)[1] if len(parts_list) > 1 else "",
+            strategy=strategy,
+            scope=scope,
+            local_bindings=MappingProxyType(
+                caller_data.get("local_bindings", {})
+            ),
+            node_ids=frozenset(self.node_ids),
+            graph_nodes=self.G.nodes,
+            global_symbol_map=MappingProxyType(self.global_symbol_map),
         )
-        if res:
-            return res
 
-        # 5. File-level Scope
-        res = self._resolve_file_level_scope(
-            source_file, main_symbol, parts, rest_of_callee
-        )
-        if res:
-            return res
+        for fn in (chain or DEFAULT_RESOLVER_CHAIN):
+            result = fn(ctx)
+            if isinstance(result, _StopResolution):
+                return None
+            if result is not None:
+                return result
+        return None
 
-        # 6. Sibling / Package Scope (Go, Swift)
-        if strategy.has_package_sibling_scope():
-            res = self._resolve_package_siblings(
-                source_file, main_symbol, parts, rest_of_callee
-            )
-            if res:
-                return res
 
-        # 7. Explicit Imports & Aliases
-        if main_symbol in scope.imported_symbols:
-            res = self._resolve_explicit_imports(
-                scope, main_symbol, parts, rest_of_callee
-            )
-            if res:
-                return res
 
-        # 8. Wildcard Imports
-        res = self._resolve_wildcard_imports(scope, main_symbol, parts, rest_of_callee)
-        if res:
-            return res
 
-        # 9. Global Fallback Check
-        return self._resolve_global_fallback(source_file, main_symbol, parts)
 
     def propagate_types(self) -> None:
         max_iterations = 10
