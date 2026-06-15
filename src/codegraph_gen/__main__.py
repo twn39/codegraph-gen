@@ -25,7 +25,7 @@ try:
 
     __version__ = version("codegraph-gen")
 except Exception:
-    __version__ = "1.1.0"
+    __version__ = "1.2.0"
 
 
 @click.group()
