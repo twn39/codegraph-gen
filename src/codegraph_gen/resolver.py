@@ -8,21 +8,11 @@ from codegraph_gen.resolver_strategy import (
     get_strategy_by_name,
     LanguageResolverStrategy,
 )
-from codegraph_gen.resolver_context import ResolutionContext, STOP, _StopResolution
+from codegraph_gen.scope import FileSymbolScope
+from codegraph_gen.resolver_context import ResolutionContext, _StopResolution
 from codegraph_gen.resolver_steps import DEFAULT_RESOLVER_CHAIN, ResolverFn
 
 logger = logging.getLogger(__name__)
-
-class FileSymbolScope:
-    def __init__(self, file_path: str, language: str):
-        self.file_path = file_path
-        self.language = language
-        # Maps local symbol name -> fully qualified Node ID (e.g. {"MyClass": "foo.py::MyClass"})
-        self.declared_symbols: dict[str, str] = {}
-        # Maps import alias or local name -> (target_file_id, original_name)
-        self.imported_symbols: dict[str, tuple[str, str]] = {}
-        # List of target files that were wildcard imported (e.g. from X import *)
-        self.wildcard_imports: list[str] = []
 
 
 def extract_return_type_from_signature(signature: str, language: str) -> str | None:
@@ -207,25 +197,19 @@ class TypeResolver:
             rest_of_callee=callee_clean.split(".", 1)[1] if len(parts_list) > 1 else "",
             strategy=strategy,
             scope=scope,
-            local_bindings=MappingProxyType(
-                caller_data.get("local_bindings", {})
-            ),
+            local_bindings=MappingProxyType(caller_data.get("local_bindings", {})),
             node_ids=frozenset(self.node_ids),
             graph_nodes=self.G.nodes,
             global_symbol_map=MappingProxyType(self.global_symbol_map),
         )
 
-        for fn in (chain or DEFAULT_RESOLVER_CHAIN):
+        for fn in chain or DEFAULT_RESOLVER_CHAIN:
             result = fn(ctx)
             if isinstance(result, _StopResolution):
                 return None
             if result is not None:
                 return result
         return None
-
-
-
-
 
     def propagate_types(self) -> None:
         max_iterations = 10

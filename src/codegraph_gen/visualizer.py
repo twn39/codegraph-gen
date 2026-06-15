@@ -1,14 +1,15 @@
 import json
-import sys
 import webbrowser
 from pathlib import Path
 import networkx as nx
 
 from codegraph_gen.builder import build_graph
 from codegraph_gen.config import CacheEntry
-from codegraph_gen.schema import ExtractionResult
 
-def generate_visualization(workspace_dir: Path, output_dir: Path, open_browser: bool = True) -> Path:
+
+def generate_visualization(
+    workspace_dir: Path, output_dir: Path, open_browser: bool = True
+) -> Path:
     """
     Rebuilds the resolved graph from the cache and exports an interactive HTML visualization.
     """
@@ -45,19 +46,21 @@ def generate_visualization(workspace_dir: Path, output_dir: Path, open_browser: 
     G = build_graph(extractions, workspace_dir)
 
     # Calculate 2D layout using NetworkX force-directed layout
-    pos = nx.spring_layout(G, k=1.3 / (G.number_of_nodes() ** 0.5), iterations=120, seed=42)
+    pos = nx.spring_layout(
+        G, k=1.3 / (G.number_of_nodes() ** 0.5), iterations=120, seed=42
+    )
 
     # Color Palette for Node Types
     type_colors = {
-        "file": "#3b82f6",       # Bright Blue
-        "class": "#a855f7",      # Purple
-        "struct": "#c084fc",     # Light Purple
+        "file": "#3b82f6",  # Bright Blue
+        "class": "#a855f7",  # Purple
+        "struct": "#c084fc",  # Light Purple
         "interface": "#e9d5ff",  # Very Light Purple
-        "enum": "#86198f",       # Dark Magenta/Purple
-        "function": "#10b981",   # Emerald Green
-        "method": "#ef4444",     # Red-Orange
+        "enum": "#86198f",  # Dark Magenta/Purple
+        "function": "#10b981",  # Emerald Green
+        "method": "#ef4444",  # Red-Orange
     }
-    default_color = "#9ca3af"    # Gray
+    default_color = "#9ca3af"  # Gray
 
     # Group nodes by type for separate Plotly traces (enabling interactive legend toggling)
     nodes_by_type = {}
@@ -69,28 +72,34 @@ def generate_visualization(workspace_dir: Path, output_dir: Path, open_browser: 
     fig = go.Figure()
 
     # 1. Draw Edges as Line Traces (grouped by relation type to reduce clutter/render efficiently)
-    edge_x = {rel: [] for rel in ["imports", "calls", "inherits", "implements", "contains", "other"]}
-    edge_y = {rel: [] for rel in ["imports", "calls", "inherits", "implements", "contains", "other"]}
+    edge_x = {
+        rel: []
+        for rel in ["imports", "calls", "inherits", "implements", "contains", "other"]
+    }
+    edge_y = {
+        rel: []
+        for rel in ["imports", "calls", "inherits", "implements", "contains", "other"]
+    }
 
     for u, v, data in G.edges(data=True):
         rel = data.get("relation", "other")
         if rel not in edge_x:
             rel = "other"
-        
+
         x0, y0 = pos[u]
         x1, y1 = pos[v]
-        
+
         edge_x[rel].extend([x0, x1, None])
         edge_y[rel].extend([y0, y1, None])
 
     # Edge colors with soft opacities
     edge_colors = {
-        "imports": "rgba(59, 130, 246, 0.25)",     # Blue
-        "calls": "rgba(239, 68, 68, 0.25)",        # Red
-        "inherits": "rgba(168, 85, 247, 0.35)",     # Purple
-        "implements": "rgba(192, 132, 252, 0.35)",   # Light Purple
-        "contains": "rgba(156, 163, 175, 0.15)",   # Thin Gray
-        "other": "rgba(255, 255, 255, 0.15)"        # Semi-transparent White
+        "imports": "rgba(59, 130, 246, 0.25)",  # Blue
+        "calls": "rgba(239, 68, 68, 0.25)",  # Red
+        "inherits": "rgba(168, 85, 247, 0.35)",  # Purple
+        "implements": "rgba(192, 132, 252, 0.35)",  # Light Purple
+        "contains": "rgba(156, 163, 175, 0.15)",  # Thin Gray
+        "other": "rgba(255, 255, 255, 0.15)",  # Semi-transparent White
     }
 
     for rel in edge_x:
@@ -105,7 +114,9 @@ def generate_visualization(workspace_dir: Path, output_dir: Path, open_browser: 
                     name=f"Edges ({rel})",
                     legendgroup="edges",
                     legendgrouptitle=dict(text="Graph Relationships"),
-                    visible=True if rel in ["calls", "inherits", "implements", "imports"] else "legendonly"
+                    visible=True
+                    if rel in ["calls", "inherits", "implements", "imports"]
+                    else "legendonly",
                 )
             )
 
@@ -122,7 +133,7 @@ def generate_visualization(workspace_dir: Path, output_dir: Path, open_browser: 
             x, y = pos[node_id]
             node_x.append(x)
             node_y.append(y)
-            
+
             # Node Size based on degree (number of connections)
             deg = G.degree(node_id)
             node_sizes.append(10 + min(deg * 1.5, 30))
@@ -132,41 +143,52 @@ def generate_visualization(workspace_dir: Path, output_dir: Path, open_browser: 
             source_file = data.get("source_file", "N/A")
             line_start = data.get("line_start", "?")
             line_end = data.get("line_end", "?")
-            
+
             tooltip = f"<b>{label}</b> ({ntype.capitalize()})"
             node_text.append(tooltip)
 
             # Build detailed lists for incoming/outgoing connections to display in the side panel
             incoming = []
             for u, v in G.in_edges(node_id):
-                incoming.append({
-                    "label": G.nodes[u].get("label", u),
-                    "type": G.nodes[u].get("type", "unknown")
-                })
-            
+                incoming.append(
+                    {
+                        "label": G.nodes[u].get("label", u),
+                        "type": G.nodes[u].get("type", "unknown"),
+                    }
+                )
+
             outgoing = []
             for u, v in G.out_edges(node_id):
-                outgoing.append({
-                    "label": G.nodes[v].get("label", v),
-                    "type": G.nodes[v].get("type", "unknown")
-                })
+                outgoing.append(
+                    {
+                        "label": G.nodes[v].get("label", v),
+                        "type": G.nodes[v].get("type", "unknown"),
+                    }
+                )
 
             sig = data.get("signature", "")
             doc = data.get("docstring", "")
             if doc:
-                doc = doc.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\n", "<br>")
+                doc = (
+                    doc.replace("&", "&amp;")
+                    .replace("<", "&lt;")
+                    .replace(">", "&gt;")
+                    .replace("\n", "<br>")
+                )
 
-            customdata.append([
-                node_id,
-                label,
-                ntype,
-                source_file,
-                f"L{line_start}-L{line_end}",
-                sig,
-                doc,
-                json.dumps(incoming),
-                json.dumps(outgoing)
-            ])
+            customdata.append(
+                [
+                    node_id,
+                    label,
+                    ntype,
+                    source_file,
+                    f"L{line_start}-L{line_end}",
+                    sig,
+                    doc,
+                    json.dumps(incoming),
+                    json.dumps(outgoing),
+                ]
+            )
 
         fig.add_trace(
             go.Scatter(
@@ -179,13 +201,13 @@ def generate_visualization(workspace_dir: Path, output_dir: Path, open_browser: 
                     symbol="circle",
                     size=node_sizes,
                     color=color,
-                    line=dict(color="#090d16", width=1.5)
+                    line=dict(color="#090d16", width=1.5),
                 ),
                 text=node_text,
                 hoverinfo="text",
                 hovertemplate="%{text}<extra></extra>",
                 legendgroup="nodes",
-                legendgrouptitle=dict(text="Node Types (Click to Toggle)")
+                legendgrouptitle=dict(text="Node Types (Click to Toggle)"),
             )
         )
 
@@ -198,14 +220,14 @@ def generate_visualization(workspace_dir: Path, output_dir: Path, open_browser: 
             bgcolor="rgba(9, 13, 22, 0.7)",
             bordercolor="rgba(255, 255, 255, 0.08)",
             borderwidth=1,
-            font=dict(color="#94a3b8", family="Inter, sans-serif", size=11)
+            font=dict(color="#94a3b8", family="Inter, sans-serif", size=11),
         ),
         margin=dict(b=0, l=0, r=0, t=0),
         hovermode="closest",
         plot_bgcolor="#090d16",
         paper_bgcolor="#090d16",
         xaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
-        yaxis=dict(showgrid=False, zeroline=False, showticklabels=False)
+        yaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
     )
 
     # Export raw HTML div and script (exclude main HTML body to wrap with custom UI template)
@@ -540,8 +562,8 @@ def generate_visualization(workspace_dir: Path, output_dir: Path, open_browser: 
     export_path = output_dir / "graph.html"
     with open(export_path, "w", encoding="utf-8") as f:
         f.write(custom_ui_html)
-    
+
     if open_browser:
         webbrowser.open(f"file://{export_path}")
-        
+
     return export_path

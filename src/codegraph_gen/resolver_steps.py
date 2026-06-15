@@ -19,6 +19,7 @@ The default chain is exported as ``DEFAULT_RESOLVER_CHAIN``, an ordered
 list of callables.  It replaces the 9-step ``if/elif/return`` sequence
 that was previously embedded inside ``TypeResolver.resolve_symbol()``.
 """
+
 from __future__ import annotations
 
 import logging
@@ -26,6 +27,7 @@ from pathlib import Path
 from typing import Callable
 
 from codegraph_gen.resolver_context import ResolutionContext, STOP, _StopResolution
+
 # Common builtin/standard library method names to avoid incorrect resolution during global fallback
 COMMON_BUILTIN_METHODS: set[str] = {
     "append",
@@ -106,6 +108,7 @@ ResolverFn = Callable[[ResolutionContext], "str | _StopResolution | None"]
 # Step 1 — Builtin / Stdlib guard
 # ---------------------------------------------------------------------------
 
+
 def guard_builtin(ctx: ResolutionContext) -> str | _StopResolution | None:
     """
     Reject symbols that are builtins or stdlib identifiers for the caller's
@@ -119,6 +122,7 @@ def guard_builtin(ctx: ResolutionContext) -> str | _StopResolution | None:
 # ---------------------------------------------------------------------------
 # Step 2 — Local binding (typed variable)
 # ---------------------------------------------------------------------------
+
 
 def resolve_local_binding(ctx: ResolutionContext) -> str | _StopResolution | None:
     """
@@ -211,6 +215,7 @@ def _resolve_local_binding_impl(ctx: ResolutionContext) -> str | None:
 # Step 3 — self / this / cls reference
 # ---------------------------------------------------------------------------
 
+
 def resolve_self_reference(ctx: ResolutionContext) -> str | _StopResolution | None:
     """
     Resolve ``self.foo``, ``this.foo``, or ``cls.foo`` to a sibling member
@@ -243,6 +248,7 @@ def resolve_self_reference(ctx: ResolutionContext) -> str | _StopResolution | No
 # Step 4 — Current class context
 # ---------------------------------------------------------------------------
 
+
 def resolve_current_class(ctx: ResolutionContext) -> str | _StopResolution | None:
     """
     Resolve sibling members called without an explicit receiver, from within
@@ -269,6 +275,7 @@ def resolve_current_class(ctx: ResolutionContext) -> str | _StopResolution | Non
 # Step 5 — File-level scope
 # ---------------------------------------------------------------------------
 
+
 def resolve_file_scope(ctx: ResolutionContext) -> str | _StopResolution | None:
     """
     Resolve symbols declared at the top level of the same file
@@ -292,6 +299,7 @@ def resolve_file_scope(ctx: ResolutionContext) -> str | _StopResolution | None:
 # ---------------------------------------------------------------------------
 # Step 6 — Package / sibling scope (Go, Swift)
 # ---------------------------------------------------------------------------
+
 
 def resolve_package_siblings(ctx: ResolutionContext) -> str | _StopResolution | None:
     """
@@ -331,6 +339,7 @@ def resolve_package_siblings(ctx: ResolutionContext) -> str | _StopResolution | 
 # Step 7 — Explicit imports & aliases
 # ---------------------------------------------------------------------------
 
+
 def resolve_explicit_imports(ctx: ResolutionContext) -> str | _StopResolution | None:
     """
     Resolve symbols that were explicitly imported in the caller's file,
@@ -356,9 +365,9 @@ def resolve_explicit_imports(ctx: ResolutionContext) -> str | _StopResolution | 
             if target_candidate in node_ids:
                 return target_candidate
             for nid in node_ids:
-                if graph_nodes[nid].get("source_file") == target_file_id and nid.endswith(
-                    f".{parts[-1]}"
-                ):
+                if graph_nodes[nid].get(
+                    "source_file"
+                ) == target_file_id and nid.endswith(f".{parts[-1]}"):
                     return nid
         else:
             target_candidate = f"{target_file_id}::{main_symbol}"
@@ -380,6 +389,7 @@ def resolve_explicit_imports(ctx: ResolutionContext) -> str | _StopResolution | 
 # ---------------------------------------------------------------------------
 # Step 8 — Wildcard imports
 # ---------------------------------------------------------------------------
+
 
 def resolve_wildcard_imports(ctx: ResolutionContext) -> str | _StopResolution | None:
     """
@@ -405,6 +415,7 @@ def resolve_wildcard_imports(ctx: ResolutionContext) -> str | _StopResolution | 
 # ---------------------------------------------------------------------------
 # Step 9 — Global symbol map fallback
 # ---------------------------------------------------------------------------
+
 
 def resolve_global_fallback(ctx: ResolutionContext) -> str | _StopResolution | None:
     """
@@ -454,13 +465,13 @@ def resolve_global_fallback(ctx: ResolutionContext) -> str | _StopResolution | N
 # ---------------------------------------------------------------------------
 
 DEFAULT_RESOLVER_CHAIN: list[ResolverFn] = [
-    guard_builtin,           # Step 1: reject stdlib/builtins immediately
-    resolve_local_binding,   # Step 2: typed local variable (foo: MyClass → foo.method())
+    guard_builtin,  # Step 1: reject stdlib/builtins immediately
+    resolve_local_binding,  # Step 2: typed local variable (foo: MyClass → foo.method())
     resolve_self_reference,  # Step 3: self.foo / this.foo / cls.foo
-    resolve_current_class,   # Step 4: sibling members within current class
-    resolve_file_scope,      # Step 5: file-level declarations
+    resolve_current_class,  # Step 4: sibling members within current class
+    resolve_file_scope,  # Step 5: file-level declarations
     resolve_package_siblings,  # Step 6: Go/Swift package-level siblings (self-guarding)
     resolve_explicit_imports,  # Step 7: explicitly imported symbols (self-guarding)
     resolve_wildcard_imports,  # Step 8: wildcard-imported symbols
-    resolve_global_fallback,   # Step 9: last-resort global symbol map lookup
+    resolve_global_fallback,  # Step 9: last-resort global symbol map lookup
 ]

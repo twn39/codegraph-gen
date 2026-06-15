@@ -1,9 +1,7 @@
-import pytest
-from pathlib import Path
 from types import MappingProxyType
 
 from codegraph_gen.resolver_context import ResolutionContext, STOP
-from codegraph_gen.resolver import FileSymbolScope
+from codegraph_gen.scope import FileSymbolScope
 from codegraph_gen.resolver_strategy import get_strategy_by_name
 from codegraph_gen.resolver_steps import (
     guard_builtin,
@@ -16,6 +14,7 @@ from codegraph_gen.resolver_steps import (
     resolve_wildcard_imports,
     resolve_global_fallback,
 )
+
 
 def make_test_context(
     caller_id="main.py::MyClass.method",
@@ -62,11 +61,15 @@ def make_test_context(
 
 def test_guard_builtin():
     # Builtin Python function should return STOP
-    ctx = make_test_context(callee_name="print", parts=("print",), strategy_name="python")
+    ctx = make_test_context(
+        callee_name="print", parts=("print",), strategy_name="python"
+    )
     assert guard_builtin(ctx) is STOP
 
     # Non-builtin should return None
-    ctx = make_test_context(callee_name="my_func", parts=("my_func",), strategy_name="python")
+    ctx = make_test_context(
+        callee_name="my_func", parts=("my_func",), strategy_name="python"
+    )
     assert guard_builtin(ctx) is None
 
 
@@ -77,8 +80,16 @@ def test_resolve_local_binding():
 
     # Case 2: local binding exists, class node exists, method node exists
     graph_nodes = {
-        "main.py::OtherClass": {"type": "class", "label": "OtherClass", "source_file": "main.py"},
-        "main.py::OtherClass.bar": {"type": "method", "label": "bar", "source_file": "main.py"},
+        "main.py::OtherClass": {
+            "type": "class",
+            "label": "OtherClass",
+            "source_file": "main.py",
+        },
+        "main.py::OtherClass.bar": {
+            "type": "method",
+            "label": "bar",
+            "source_file": "main.py",
+        },
     }
     ctx = make_test_context(
         callee_name="x.bar",
@@ -150,7 +161,11 @@ def test_resolve_package_siblings():
     graph_nodes = {
         "main.go": {"type": "file"},
         "helper.go": {"type": "file"},
-        "helper.go::HelperFunc": {"type": "function", "label": "HelperFunc", "source_file": "helper.go"},
+        "helper.go::HelperFunc": {
+            "type": "function",
+            "label": "HelperFunc",
+            "source_file": "helper.go",
+        },
     }
     ctx = make_test_context(
         caller_id="main.go::main",
@@ -201,7 +216,11 @@ def test_resolve_wildcard_imports():
 def test_resolve_global_fallback():
     # Single unique candidate globally
     graph_nodes = {
-        "other.py::UniqueSymbol": {"type": "class", "label": "UniqueSymbol", "source_file": "other.py"}
+        "other.py::UniqueSymbol": {
+            "type": "class",
+            "label": "UniqueSymbol",
+            "source_file": "other.py",
+        }
     }
     ctx = make_test_context(
         callee_name="UniqueSymbol",
@@ -216,9 +235,7 @@ def test_resolve_global_fallback():
 def test_resolve_builtin_vs_stdlib_shadowing():
     # Case 1: errors is a Go stdlib module. It should not be blocked by guard_builtin
     ctx = make_test_context(
-        callee_name="errors.New",
-        parts=("errors", "New"),
-        strategy_name="go"
+        callee_name="errors.New", parts=("errors", "New"), strategy_name="go"
     )
     assert guard_builtin(ctx) is None
 
@@ -226,7 +243,11 @@ def test_resolve_builtin_vs_stdlib_shadowing():
     # If errors is explicitly imported as a local path, resolve_explicit_imports should resolve it.
     graph_nodes = {
         "myerrors.go": {"type": "file"},
-        "myerrors.go::New": {"type": "function", "label": "New", "source_file": "myerrors.go"},
+        "myerrors.go::New": {
+            "type": "function",
+            "label": "New",
+            "source_file": "myerrors.go",
+        },
     }
     ctx = make_test_context(
         callee_name="errors.New",
@@ -245,7 +266,7 @@ def test_resolve_global_fallback_stdlib_and_external_imports():
         callee_name="errors.New",
         parts=("errors", "New"),
         strategy_name="go",
-        global_symbol_map={"New": ["other.go::New"]}
+        global_symbol_map={"New": ["other.go::New"]},
     )
     assert resolve_global_fallback(ctx) is None
 

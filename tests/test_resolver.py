@@ -169,6 +169,7 @@ def test_type_resolver_lookup_strategies(tmp_path):
 
     # 1. Builtin check
     from codegraph_gen.resolver_strategy import get_strategy_by_name
+
     assert get_strategy_by_name("python").is_builtin("print") is True
     assert get_strategy_by_name("python").is_builtin("MyClass") is False
 

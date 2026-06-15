@@ -725,4 +725,3 @@ def test_cli_version():
     assert result.exit_code == 0
     assert "codegraph, version" in result.output
     assert __version__ in result.output
-

@@ -22,6 +22,7 @@ console = Console()
 
 try:
     from importlib.metadata import version
+
     __version__ = version("codegraph-gen")
 except Exception:
     __version__ = "1.1.0"
@@ -124,6 +125,7 @@ def build(
 
     # Workers: CLI --workers > .codegraphrc workers > CPU count
     import os
+
     if not parallel:
         max_workers = 1
     elif workers is not None:
@@ -135,7 +137,9 @@ def build(
 
     # Cache: CLI --cache/--no-cache flag always applies; .codegraphrc only when CLI default
     # (click default for cache is True, so we trust project_cfg when CLI wasn't explicitly set)
-    effective_cache = cache if cache is not None else (project_cfg.cache if project_cfg else True)
+    effective_cache = (
+        cache if cache is not None else (project_cfg.cache if project_cfg else True)
+    )
 
     # Include dirs: from .codegraphrc include whitelist (no CLI equivalent)
     include_dirs = None
@@ -425,10 +429,13 @@ Finally, reply to the user in English, summarizing:
 def visualize(src_dir: Path, output: Path, open_browser: bool):
     """Generates an interactive Plotly-based HTML visualization of the graph."""
     import sys
-    console.print("[bold blue]Generating interactive graph visualization...[/bold blue]")
+
+    console.print(
+        "[bold blue]Generating interactive graph visualization...[/bold blue]"
+    )
 
     workspace = src_dir.resolve()
-    
+
     # Resolve output directory using same logic as build
     project_cfg = load_project_config(workspace)
     if output != Path(".codegraph"):
@@ -440,8 +447,13 @@ def visualize(src_dir: Path, output: Path, open_browser: bool):
 
     try:
         from codegraph_gen.visualizer import generate_visualization
-        html_path = generate_visualization(workspace, resolved_output, open_browser=open_browser)
-        console.print(f"[bold green]Success![/bold green] Interactive graph exported to: [bold underline]{html_path}[/bold underline]")
+
+        html_path = generate_visualization(
+            workspace, resolved_output, open_browser=open_browser
+        )
+        console.print(
+            f"[bold green]Success![/bold green] Interactive graph exported to: [bold underline]{html_path}[/bold underline]"
+        )
     except ImportError as e:
         console.print(f"[bold red]Error: {e}[/bold red]")
         sys.exit(1)

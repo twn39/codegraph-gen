@@ -76,11 +76,12 @@ def discover_files(
                 logger.warning(f"include_dirs entry does not exist, skipping: {root}")
                 continue
             if not root.is_dir():
-                logger.warning(f"include_dirs entry is not a directory, skipping: {root}")
+                logger.warning(
+                    f"include_dirs entry is not a directory, skipping: {root}"
+                )
                 continue
             scan_dir(root)
     else:
         scan_dir(workspace)
 
     return found_files
-

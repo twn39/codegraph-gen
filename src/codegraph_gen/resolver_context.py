@@ -5,20 +5,23 @@ Immutable value object (ResolutionContext) shared across all symbol
 resolver functions, plus the STOP sentinel used to signal explicit
 early termination of the resolver chain.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Any
 
+from codegraph_gen.scope import FileSymbolScope
+
 if TYPE_CHECKING:
     from codegraph_gen.resolver_strategy import LanguageResolverStrategy
-    from codegraph_gen.resolver import FileSymbolScope
 
 
 # ---------------------------------------------------------------------------
 # STOP sentinel
 # ---------------------------------------------------------------------------
+
 
 class _StopResolution:
     """
@@ -59,6 +62,7 @@ STOP = _StopResolution()
 # ResolutionContext
 # ---------------------------------------------------------------------------
 
+
 @dataclass(frozen=True)
 class ResolutionContext:
     """
@@ -96,7 +100,7 @@ class ResolutionContext:
     """Language-specific resolver strategy for the caller's file."""
 
     # ── scope information ──────────────────────────────────────────────────
-    scope: "FileSymbolScope"
+    scope: FileSymbolScope
     """File-level scope (imports, declared symbols) for ``source_file``."""
 
     local_bindings: MappingProxyType  # MappingProxyType[str, str]

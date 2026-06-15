@@ -104,7 +104,9 @@ def load_project_config(workspace_dir: Path) -> Optional[ProjectConfig]:
         logger.info(f"Loaded project config from {config_path}")
         return cfg
     except json.JSONDecodeError as e:
-        logger.warning(f"{PROJECT_CONFIG_FILE}: JSON parse error — {e}. Using defaults.")
+        logger.warning(
+            f"{PROJECT_CONFIG_FILE}: JSON parse error — {e}. Using defaults."
+        )
     except Exception as e:
         logger.warning(f"{PROJECT_CONFIG_FILE}: Failed to load — {e}. Using defaults.")
     return None
