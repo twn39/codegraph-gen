@@ -1,7 +1,7 @@
 from abc import ABC, abstractmethod
 import logging
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 import tree_sitter
 from codegraph_gen.schema import (
     NodeSchema,
@@ -114,7 +114,7 @@ class ASTVisitor:
         self,
         *args,
         handler: Any = None,
-        ctx: ASTParsingContext = None,
+        ctx: Optional[ASTParsingContext] = None,
         **kwargs,
     ):
         self._visitor_cache = {}
@@ -135,7 +135,7 @@ class ASTVisitor:
             self.rel_path = rel_path
             self.collector = collector
             self.scope = ScopeTracker(rel_path, "file") if rel_path else None
-            self.handler = self
+            self.handler: Any = self
         else:
             # Composition signature: ASTVisitor(handler, ctx)
             self.handler = (
@@ -156,7 +156,7 @@ class ASTVisitor:
 
         # Bind the traverser to the handler if using composition
         if self.handler is not self:
-            self.handler.traverser = self
+            setattr(self.handler, "traverser", self)
 
     def add_node(self, node: NodeSchema) -> None:
         if self.ctx is not None:

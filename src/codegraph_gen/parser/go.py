@@ -20,6 +20,8 @@ logger = logging.getLogger(__name__)
 
 
 class GoVisitor:
+    traverser: ASTVisitor
+
     def __init__(self, ctx: ASTParsingContext, parser):
         self.ctx = ctx
         self.parser = parser

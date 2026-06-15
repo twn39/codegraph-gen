@@ -21,6 +21,8 @@ logger = logging.getLogger(__name__)
 
 
 class JavaScriptVisitor:
+    traverser: ASTVisitor
+
     def __init__(self, ctx: ASTParsingContext, parser):
         self.ctx = ctx
         self.parser = parser

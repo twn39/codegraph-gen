@@ -1,3 +1,4 @@
+from typing import Any, cast
 from codegraph_gen.parser.base import (
     ASTParsingContext,
     ASTVisitor,
@@ -49,8 +50,8 @@ def test_stateless_helpers():
     source = b"  hello world  "
     node = MockNode("identifier", 2, 13, (0, 2), (0, 13))
 
-    assert get_node_text(node, source) == "hello world"
-    assert get_line_range(node) == (1, 1)
+    assert get_node_text(cast(Any, node), source) == "hello world"
+    assert get_line_range(cast(Any, node)) == (1, 1)
 
 
 def test_ast_visitor_composition():
@@ -60,6 +61,8 @@ def test_ast_visitor_composition():
     called_visits = []
 
     class MockHandler:
+        traverser: ASTVisitor
+
         def visit_my_custom_node(self, node):
             called_visits.append("custom")
 
@@ -71,7 +74,7 @@ def test_ast_visitor_composition():
     assert visitor.ctx == ctx
 
     node = MockNode("my_custom_node", 0, 7, (0, 0), (0, 7))
-    visitor.visit(node)
+    visitor.visit(cast(Any, node))
 
     assert called_visits == ["custom"]
 
@@ -90,6 +93,6 @@ def test_ast_visitor_inheritance_compatibility():
     assert visitor.rel_path == "legacy.py"
 
     node = MockNode("my_node", 0, 4, (0, 0), (0, 4))
-    visitor.visit(node)
+    visitor.visit(cast(Any, node))
 
     assert called == ["legacy"]
