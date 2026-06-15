@@ -5,26 +5,59 @@ import tree_sitter_rust
 from codegraph_gen.parser.base import (
     BaseParser,
     ASTVisitor,
+    ASTParsingContext,
+    get_node_text,
+    get_line_range,
     register_parser,
 )
 from codegraph_gen.schema import (
     ExtractionResult,
     NodeSchema,
     EdgeSchema,
-    SymbolCollector,
 )
 
 logger = logging.getLogger(__name__)
 
 
-class RustVisitor(ASTVisitor):
-    def __init__(
-        self, source: bytes, rel_path: str, collector: SymbolCollector, parser
-    ):
-        super().__init__(source, rel_path, collector)
+class RustVisitor:
+    def __init__(self, ctx: ASTParsingContext, parser):
+        self.ctx = ctx
         self.parser = parser
-        self.file_node_id = rel_path
+        self.file_node_id = ctx.rel_path
         self.current_impl_type = None
+
+    def get_text(self, node: tree_sitter.Node) -> str:
+        return get_node_text(node, self.ctx.source)
+
+    def get_line_range(self, node: tree_sitter.Node) -> tuple[int, int]:
+        return get_line_range(node)
+
+    def get_current_parent_id(self) -> str:
+        return self.ctx.scope.current_id
+
+    def add_node(self, node: NodeSchema) -> None:
+        self.ctx.add_node(node)
+
+    def add_edge(self, edge: EdgeSchema) -> None:
+        self.ctx.add_edge(edge)
+
+    @property
+    def scope(self):
+        return self.ctx.scope
+
+    @property
+    def source(self):
+        return self.ctx.source
+
+    @property
+    def rel_path(self):
+        return self.ctx.rel_path
+
+    def generic_visit(self, node: tree_sitter.Node) -> None:
+        self.traverser.generic_visit(node)
+
+    def visit(self, node: tree_sitter.Node) -> None:
+        self.traverser.visit(node)
 
     def get_impl_type(self, impl_node) -> str | None:
         type_node = impl_node.child_by_field_name("type")
@@ -445,6 +478,8 @@ class RustParser(BaseParser):
             )
         )
 
-        visitor = RustVisitor(source, rel_path, result, self)
+        ctx = ASTParsingContext(source, rel_path, result)
+        handler = RustVisitor(ctx, self)
+        visitor = ASTVisitor(handler, ctx)
         visitor.visit(root)
         return result

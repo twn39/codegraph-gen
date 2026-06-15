@@ -22,7 +22,7 @@ def generate_visualization(
         )
 
     try:
-        import numpy
+        import numpy  # noqa: F401
     except ImportError:
         raise ImportError(
             "NumPy is not installed. Please run 'pip install numpy' or 'uv pip install numpy'."
