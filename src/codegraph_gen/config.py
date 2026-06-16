@@ -54,6 +54,7 @@ LANGUAGE_EXTENSIONS = {
     "swift": {".swift"},
     "c": {".c", ".h"},
     "cpp": {".cpp", ".cc", ".cxx", ".hpp", ".hxx"},
+    "ocaml": {".ml", ".mli"},
 }
 
 ALL_EXTENSIONS = {ext for exts in LANGUAGE_EXTENSIONS.values() for ext in exts}

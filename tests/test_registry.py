@@ -20,6 +20,7 @@ def test_registry_lookups():
     from codegraph_gen.parser.swift import SwiftParser
     from codegraph_gen.parser.kotlin import KotlinParser
     from codegraph_gen.parser.cpp import CParser, CppParser
+    from codegraph_gen.parser.ocaml import OCamlParser
 
     assert isinstance(get_parser("python"), PythonParser)
     assert isinstance(get_parser("javascript"), JavaScriptParser)
@@ -30,6 +31,7 @@ def test_registry_lookups():
     assert isinstance(get_parser("kotlin"), KotlinParser)
     assert isinstance(get_parser("c"), CParser)
     assert isinstance(get_parser("cpp"), CppParser)
+    assert isinstance(get_parser("ocaml"), OCamlParser)
 
     # Case insensitivity
     assert isinstance(get_parser("PyThOn"), PythonParser)

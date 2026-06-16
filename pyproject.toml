@@ -44,6 +44,7 @@ dependencies = [
     "tree-sitter-c>=0.24.2",
     "tree-sitter-cpp>=0.23.4",
     "tree-sitter-kotlin>=1.1.0",
+    "tree-sitter-ocaml>=0.25.0",
 ]
 
 [dependency-groups]

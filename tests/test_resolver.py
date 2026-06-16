@@ -293,9 +293,13 @@ def test_language_strategies():
     strategy_rs = get_strategy_for_file("lib.rs")
     assert strategy_rs.name == "rust"
 
+    strategy_ml = get_strategy_for_file("main.ml")
+    assert strategy_ml.name == "ocaml"
+
     # test lookup by name
     assert get_strategy_by_name("Swift").name == "swift"
     assert get_strategy_by_name("cpp").name == "cpp"
+    assert get_strategy_by_name("ocaml").name == "ocaml"
 
     # test builtins
     assert strategy_py.is_builtin("print") is True
