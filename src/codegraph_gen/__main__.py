@@ -353,7 +353,7 @@ elif [ -f "venv/bin/codegraph" ]; then
     CODEGRAPH_BIN="venv/bin/codegraph"
 else
     if ! command -v codegraph >/dev/null 2>&1; then
-        uv tool install codegraph
+        uv tool install codegraph-gen
     fi
     CODEGRAPH_BIN="codegraph"
 fi
