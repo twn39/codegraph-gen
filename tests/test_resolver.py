@@ -1,6 +1,7 @@
 import networkx as nx
 from codegraph_gen.schema import ExtractionResult, NodeSchema, EdgeSchema
 from codegraph_gen.resolver import TypeResolver, extract_return_type_from_signature
+from codegraph_gen.resolver_strategy import LanguageResolverStrategy
 
 
 def make_node(
@@ -327,3 +328,164 @@ def test_language_strategies():
     strategy_cpp = get_strategy_by_name("cpp")
     assert strategy_py.is_path_target("myheader.h") is False
     assert strategy_cpp.is_path_target("myheader.h") is True
+
+
+class DummyCustomStrategy(LanguageResolverStrategy):
+    name = "dummy"
+    file_extensions = {".dummy"}
+    import_search_suffixes = [".dummy"]
+
+    def compute_transfer_type(
+        self, resolved_target_type: str, resolved_target_id: str
+    ) -> str | None:
+        if resolved_target_type == "special_type":
+            return "special_resolved_type"
+        return None
+
+    def extend_resolver_chain(self, default_chain: list) -> list:
+        def custom_step(ctx):
+            if ctx.callee_name == "magic_word":
+                return "magic_resolved_id"
+            return None
+
+        return default_chain + [custom_step]
+
+
+def test_worklist_solver_incremental_and_cyclic(tmp_path):
+    import networkx as nx
+
+    # Test incremental update cascading:
+    # We have a chain of local bindings in 'main.py::foo':
+    # x -> y (depends on y)
+    # y -> z (depends on z)
+    # z -> 'main.py::SomeClass' (directly resolvable to class)
+    #
+    # Also, we have a cycle of local bindings in 'main.py::bar':
+    # a -> b
+    # b -> a
+    G = nx.DiGraph()
+    G.add_node("main.py", type="file")
+    G.add_node(
+        "main.py::SomeClass", type="class", label="SomeClass", source_file="main.py"
+    )
+    G.add_node(
+        "main.py::foo",
+        type="function",
+        label="foo",
+        source_file="main.py",
+        local_bindings={"x": "y", "y": "z", "z": "SomeClass"},
+    )
+    G.add_node(
+        "main.py::bar",
+        type="function",
+        label="bar",
+        source_file="main.py",
+        local_bindings={"a": "b", "b": "a"},
+    )
+
+    ext = ExtractionResult(
+        nodes=[
+            make_node(id="main.py", type="file", label="main.py"),
+            make_node(
+                id="main.py::SomeClass",
+                type="class",
+                label="SomeClass",
+                source_file="main.py",
+            ),
+            make_node(
+                id="main.py::foo",
+                type="function",
+                label="foo",
+                source_file="main.py",
+                local_bindings={"x": "y", "y": "z", "z": "SomeClass"},
+            ),
+            make_node(
+                id="main.py::bar",
+                type="function",
+                label="bar",
+                source_file="main.py",
+                local_bindings={"a": "b", "b": "a"},
+            ),
+        ],
+        edges=[],
+    )
+
+    resolver = TypeResolver(G, [ext], tmp_path)
+    resolver.propagate_types()
+
+    # The chain x -> y -> z -> SomeClass should fully resolve to 'main.py::SomeClass'
+    assert G.nodes["main.py::foo"]["local_bindings"]["z"] == "main.py::SomeClass"
+    assert G.nodes["main.py::foo"]["local_bindings"]["y"] == "main.py::SomeClass"
+    assert G.nodes["main.py::foo"]["local_bindings"]["x"] == "main.py::SomeClass"
+
+    # The cycle a -> b -> a should terminate gracefully and remain unmodified
+    assert G.nodes["main.py::bar"]["local_bindings"]["a"] == "b"
+    assert G.nodes["main.py::bar"]["local_bindings"]["b"] == "a"
+
+
+def test_custom_strategy_hooks(tmp_path):
+    import networkx as nx
+
+    dummy_strategy = DummyCustomStrategy()
+
+    G = nx.DiGraph()
+    G.add_node("test.dummy", type="file")
+    G.add_node(
+        "test.dummy::SpecialNode",
+        type="special_type",
+        label="SpecialNode",
+        source_file="test.dummy",
+    )
+    G.add_node(
+        "test.dummy::TargetNode",
+        type="class",
+        label="special_resolved_type",
+        source_file="test.dummy",
+    )
+    G.add_node(
+        "test.dummy::client",
+        type="function",
+        label="client",
+        source_file="test.dummy",
+        local_bindings={"v": "SpecialNode"},
+    )
+
+    ext = ExtractionResult(
+        nodes=[
+            make_node(id="test.dummy", type="file", label="test.dummy"),
+            make_node(
+                id="test.dummy::SpecialNode",
+                type="special_type",
+                label="SpecialNode",
+                source_file="test.dummy",
+            ),
+            make_node(
+                id="test.dummy::TargetNode",
+                type="class",
+                label="special_resolved_type",
+                source_file="test.dummy",
+            ),
+            make_node(
+                id="test.dummy::client",
+                type="function",
+                label="client",
+                source_file="test.dummy",
+                local_bindings={"v": "SpecialNode"},
+            ),
+        ],
+        edges=[],
+    )
+
+    resolver = TypeResolver(G, [ext], tmp_path)
+    # Manually associate our dummy file with our custom dummy strategy
+    resolver.file_strategies["test.dummy"] = dummy_strategy
+
+    # 1. Verify custom resolver step chain extension
+    resolved_magic = resolver.resolve_symbol("test.dummy::client", "magic_word")
+    assert resolved_magic == "magic_resolved_id"
+
+    # 2. Verify custom transfer function hook in type propagation
+    resolver.propagate_types()
+    assert (
+        G.nodes["test.dummy::client"]["local_bindings"]["v"] == "test.dummy::TargetNode"
+    )

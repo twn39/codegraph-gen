@@ -646,7 +646,7 @@ def test_incremental_caching_and_parallel_pipeline():
 def test_ast_visitor_caching_and_pruning():
     import tree_sitter
     import tree_sitter_python
-    from codegraph_gen.parser.base import ASTVisitor
+    from codegraph_gen.parser.base import ASTVisitor, ASTParsingContext
     from codegraph_gen.schema import ExtractionResult
 
     code = b"""
@@ -665,11 +665,15 @@ class TargetClass:
     visited_types = []
 
     class DummyVisitor(ASTVisitor):
+        def __init__(self, ctx):
+            super().__init__(self, ctx)
+
         def visit(self, node):
             visited_types.append(node.type)
             super().visit(node)
 
-    visitor = DummyVisitor(code, "test_file.py", result)
+    ctx = ASTParsingContext(code, "test_file.py", result)
+    visitor = DummyVisitor(ctx)
     visitor.visit(root)
 
     # 1. Caching verification
@@ -693,7 +697,8 @@ class TargetClass:
 
     # Test safety name routing
     mock_result = ExtractionResult()
-    visitor2 = DummyVisitor(b"", "mock.py", mock_result)
+    ctx2 = ASTParsingContext(b"", "mock.py", mock_result)
+    visitor2 = DummyVisitor(ctx2)
 
     called_with = []
 
@@ -725,3 +730,26 @@ def test_cli_version():
     assert result.exit_code == 0
     assert "codegraph, version" in result.output
     assert __version__ in result.output
+
+
+def test_cli_install(monkeypatch):
+    from click.testing import CliRunner
+    from codegraph_gen.__main__ import cli
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tmp_home = Path(tmpdir)
+        monkeypatch.setattr(Path, "home", lambda: tmp_home)
+
+        runner = CliRunner()
+        result = runner.invoke(cli, ["install", "-p", "crush"])
+        assert result.exit_code == 0
+        assert "Installing codegraph integration for crush" in result.output
+        assert "Successfully installed /codegraph slash command to:" in result.output
+
+        expected_skill = (
+            tmp_home / ".config" / "crush" / "skills" / "codegraph" / "SKILL.md"
+        )
+        assert expected_skill.exists()
+        skill_text = expected_skill.read_text(encoding="utf-8")
+        assert "name: codegraph" in skill_text
+        assert "trigger: /codegraph" in skill_text

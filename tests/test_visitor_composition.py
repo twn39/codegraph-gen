@@ -77,22 +77,3 @@ def test_ast_visitor_composition():
     visitor.visit(cast(Any, node))
 
     assert called_visits == ["custom"]
-
-
-def test_ast_visitor_inheritance_compatibility():
-    result = ExtractionResult()
-    called = []
-
-    class LegacyVisitor(ASTVisitor):
-        def visit_my_node(self, node):
-            called.append("legacy")
-
-    visitor = LegacyVisitor(b"code", "legacy.py", result)
-    assert visitor.ctx is None
-    assert visitor.source == b"code"
-    assert visitor.rel_path == "legacy.py"
-
-    node = MockNode("my_node", 0, 4, (0, 0), (0, 4))
-    visitor.visit(cast(Any, node))
-
-    assert called == ["legacy"]

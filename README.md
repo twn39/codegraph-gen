@@ -56,11 +56,11 @@ uv pip install codegraph-gen
 
 ### 注册 AI Agent 斜杠命令
 
-`codegraph-gen` 支持一键将 `/codegraph` 自定义斜杠命令注册到您的 AI Agent（如 Codex 或 Antigravity）的全局配置中：
+`codegraph-gen` 支持一键将 `/codegraph` 自定义斜杠命令注册到您的 AI Agent（如 Codex、Antigravity 或 Crush）的全局配置中：
 
 ```bash
-# 为 Codex / Antigravity 注入 /codegraph 全局斜杠命令
-codegraph install --platform codex
+# 为 Codex / Antigravity / Crush 注入 /codegraph 全局斜杠命令
+codegraph install --platform crush
 ```
 
 注册完成后，在对应的 Agent 终端中，您只需输入 `/codegraph` 即可全自动运行整个图谱的提取、分析与回写流程。

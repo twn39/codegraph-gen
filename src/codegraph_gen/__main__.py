@@ -263,7 +263,7 @@ def build(
     "--platform",
     "-p",
     default="codex",
-    type=click.Choice(["codex", "antigravity"]),
+    type=click.Choice(["codex", "antigravity", "crush"]),
     help="The AI agent platform to integrate with.",
 )
 def install(platform: str):
@@ -277,6 +277,8 @@ def install(platform: str):
         skills_dir = Path.home() / ".codex" / "skills" / "codegraph"
     elif platform == "antigravity":
         skills_dir = Path.home() / ".gemini" / "config" / "skills" / "codegraph"
+    elif platform == "crush":
+        skills_dir = Path.home() / ".config" / "crush" / "skills" / "codegraph"
     else:
         skills_dir = Path.home() / ".codex" / "skills" / "codegraph"
 

@@ -56,6 +56,12 @@ class LanguageResolverStrategy(ABC):
             candidates.append(target_path_part + ext)
         return candidates
 
+    def extend_resolver_chain(self, default_chain: list) -> list:
+        return default_chain
+
+    def compute_transfer_type(self, resolved_target_type: str, resolved_target_id: str) -> str | None:
+        return None
+
 
 def _extract_arrow_return_type(signature: str) -> str | None:
     match = re.search(r"->\s*([\w::.<>]+)", signature)

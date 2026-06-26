@@ -19,6 +19,12 @@ class VaultWriter:
         """Helper to write content to a file."""
         try:
             path.parent.mkdir(parents=True, exist_ok=True)
+            if path.exists():
+                try:
+                    if path.read_text(encoding="utf-8") == content:
+                        return
+                except Exception:
+                    pass
             path.write_text(content, encoding="utf-8")
         except Exception as e:
             logger.error(f"Failed to write file at {path}: {e}")
@@ -33,13 +39,32 @@ class VaultWriter:
         prompt_content: str,
     ):
         """Writes all rendered markdown pages to their respective directories."""
-        self.clear_directory(output_dir)
-
         nodes_dir = output_dir / "nodes"
         comps_dir = output_dir / "components"
 
         nodes_dir.mkdir(parents=True, exist_ok=True)
         comps_dir.mkdir(parents=True, exist_ok=True)
+
+        # Smart cleanup of obsolete files to avoid deleting active cache.json or graph.html
+        expected_nodes = set(rendered_nodes.keys())
+        if nodes_dir.exists():
+            for p in nodes_dir.glob("*.md"):
+                if p.name not in expected_nodes:
+                    try:
+                        p.unlink()
+                        logger.info(f"Removed obsolete node file: {p.name}")
+                    except Exception as e:
+                        logger.warning(f"Could not remove obsolete node file {p.name}: {e}")
+
+        expected_components = set(rendered_components.keys())
+        if comps_dir.exists():
+            for p in comps_dir.glob("*.md"):
+                if p.name not in expected_components:
+                    try:
+                        p.unlink()
+                        logger.info(f"Removed obsolete component file: {p.name}")
+                    except Exception as e:
+                        logger.warning(f"Could not remove obsolete component file {p.name}: {e}")
 
         # 1. Write Node Pages
         for fname, content in rendered_nodes.items():

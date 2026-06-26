@@ -1,7 +1,7 @@
 from abc import ABC, abstractmethod
 import logging
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 import tree_sitter
 from codegraph_gen.schema import (
     NodeSchema,
@@ -108,72 +108,28 @@ def get_line_range(node: tree_sitter.Node) -> tuple[int, int]:
 
 
 class ASTVisitor:
-    """Optimized AST Traverser supporting both composition and inheritance."""
+    """Optimized AST Traverser supporting composition pattern."""
 
-    def __init__(
-        self,
-        *args,
-        handler: Any = None,
-        ctx: Optional[ASTParsingContext] = None,
-        **kwargs,
-    ):
+    def __init__(self, handler: Any, ctx: ASTParsingContext):
         self._visitor_cache = {}
+        self.handler = handler
+        self.ctx = ctx
+        self.source = ctx.source
+        self.rel_path = ctx.rel_path
+        self.collector = ctx.collector
+        self.scope = ctx.scope
 
-        # Detect if called with legacy positional arguments:
-        # ASTVisitor(source: bytes, rel_path: str, collector: SymbolCollector)
-        is_legacy = False
-        if len(args) >= 1 and isinstance(args[0], bytes):
-            is_legacy = True
-
-        if is_legacy:
-            source = args[0]
-            rel_path = args[1] if len(args) > 1 else ""
-            collector = args[2] if len(args) > 2 else None
-
-            self.ctx = None
-            self.source = source
-            self.rel_path = rel_path
-            self.collector = collector
-            self.scope = ScopeTracker(rel_path, "file") if rel_path else None
-            self.handler: Any = self
-        else:
-            # Composition signature: ASTVisitor(handler, ctx)
-            self.handler = (
-                handler if handler is not None else (args[0] if len(args) > 0 else self)
-            )
-            self.ctx = ctx if ctx is not None else (args[1] if len(args) > 1 else None)
-
-            if self.ctx is not None:
-                self.source = self.ctx.source
-                self.rel_path = self.ctx.rel_path
-                self.collector = self.ctx.collector
-                self.scope = self.ctx.scope
-            else:
-                self.source = b""
-                self.rel_path = ""
-                self.collector = None
-                self.scope = None
-
-        # Bind the traverser to the handler if using composition
-        if self.handler is not self:
-            setattr(self.handler, "traverser", self)
+        setattr(self.handler, "traverser", self)
 
     def add_node(self, node: NodeSchema) -> None:
-        if self.ctx is not None:
-            self.ctx.add_node(node)
-        elif self.collector is not None:
-            self.collector.add_node(node)
+        self.ctx.add_node(node)
 
     def add_edge(self, edge: EdgeSchema) -> None:
-        if self.ctx is not None:
-            self.ctx.add_edge(edge)
-        elif self.collector is not None:
-            self.collector.add_edge(edge)
+        self.ctx.add_edge(edge)
 
     @property
     def scope_stack(self) -> list[tuple[str, str]]:
-        """Deprecated: Use self.scope instead. Kept for backward compatibility."""
-        return self.scope.stack if self.scope else []
+        return self.scope.stack
 
     def visit(self, node: tree_sitter.Node) -> None:
         """Visits a node by dynamically routing to visit_NodeType."""
