@@ -65,6 +65,7 @@ def classify_edge_attempt(
     resolved: bool,
     global_symbol_map: dict[str, list[str]],
     strategy: LanguageResolverStrategy | None = None,
+    is_local_binding: bool = False,
 ) -> ResolutionCategory:
     """
     Assign a resolution category to a single edge resolution attempt.
@@ -79,10 +80,16 @@ def classify_edge_attempt(
         # Failed contains edges are graph integrity issues (always internal).
         return "internal"
 
+    if is_local_binding:
+        # A call to a local parameter or variable (higher-order invocation)
+        # whose callee is bound at runtime, not a broken internal reference.
+        return "external"
+
     if relation == "imports":
         return _classify_import_target(target, strategy)
 
     return _classify_symbol_target(target, global_symbol_map, strategy)
+
 
 
 def _classify_import_target(

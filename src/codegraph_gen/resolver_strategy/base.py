@@ -63,12 +63,68 @@ class LanguageResolverStrategy(ABC):
         return None
 
 
+_WRAPPER_CONTAINERS: frozenset[str] = frozenset(
+    {
+        "Optional",
+        "Union",
+        "Option",
+        "Future",
+        "Promise",
+        "Result",
+        "Box",
+        "Arc",
+        "Rc",
+        "Annotated",
+    }
+)
+
+
+def _unwrap_type_name(raw: str) -> str | None:
+    raw = raw.strip()
+    if len(raw) >= 2 and raw[0] in "\"'" and raw[-1] == raw[0]:
+        raw = raw[1:-1].strip()
+    if not raw or raw in ("None", "none", "void", "nil", "()"):
+        return None
+    # Support PEP 604 unions: "Client | None" or "None | Client"
+    if "|" in raw:
+        parts = [p.strip() for p in raw.split("|") if p.strip()]
+        non_none = [p for p in parts if p not in ("None", "none", "null", "nil")]
+        if non_none:
+            return _unwrap_type_name(non_none[0])
+        return None
+
+    # Support generics with square brackets: "Optional[Client]" or "dict[str, Any]"
+    if "[" in raw and raw.endswith("]"):
+        head, inside = raw.split("[", 1)
+        head = head.strip()
+        inside = inside[:-1].strip()
+        if head in _WRAPPER_CONTAINERS:
+            first_arg = inside.split(",", 1)[0].strip()
+            unwrapped = _unwrap_type_name(first_arg)
+            if unwrapped:
+                return unwrapped
+        return head.rsplit("::", 1)[-1].rsplit(".", 1)[-1]
+
+    # Support generics with angle brackets: "List<MyClass>" or "Result<Client, Error>"
+    if "<" in raw and raw.endswith(">"):
+        head, inside = raw.split("<", 1)
+        inside = inside[:-1].strip()
+        first_arg = inside.split(",", 1)[0].strip()
+        unwrapped = _unwrap_type_name(first_arg)
+        if unwrapped:
+            return unwrapped
+        return head.rsplit("::", 1)[-1].rsplit(".", 1)[-1]
+
+    # Normalize Self / self / leaf name
+    leaf = raw.rsplit("::", 1)[-1].rsplit(".", 1)[-1].strip()
+    return leaf or None
+
+
+
 def extract_arrow_return_type(signature: str) -> str | None:
-    match = re.search(r"->\s*([\w::.<>]+)", signature)
+    match = re.search(r"->\s*([^:{(\n]+)", signature)
     if match:
         ret_type = match.group(1).strip()
-        generic_match = re.search(r"<([\w::.]+)>", ret_type)
-        if generic_match:
-            return generic_match.group(1).rsplit("::", 1)[-1].rsplit(".", 1)[-1]
-        return ret_type.rsplit("::", 1)[-1].rsplit(".", 1)[-1]
+        return _unwrap_type_name(ret_type)
     return None
+

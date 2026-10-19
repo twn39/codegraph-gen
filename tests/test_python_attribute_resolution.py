@@ -137,3 +137,63 @@ def work():
         },
     )
     assert G.has_edge("a.py::work", "a.py::Client.ping")
+
+
+def test_class_field_1hop_projection(tmp_path: Path):
+    G = _build(
+        tmp_path,
+        {
+            "a.py": """
+class Engine:
+    def start(self) -> str:
+        return "vroom"
+
+class Car:
+    engine: Engine
+
+def test_drive(c: Car):
+    return c.engine.start()
+""",
+        },
+    )
+    assert G.has_edge("a.py::test_drive", "a.py::Engine.start")
+
+
+def test_fluent_self_chaining(tmp_path: Path):
+    G = _build(
+        tmp_path,
+        {
+            "a.py": """
+class Builder:
+    def set_name(self, name: str) -> "Self":
+        return self
+    def build(self) -> int:
+        return 42
+
+def make_item(b: Builder):
+    return b.set_name("test").build()
+""",
+        },
+    )
+    assert G.has_edge("a.py::make_item", "a.py::Builder.set_name")
+    assert G.has_edge("a.py::make_item", "a.py::Builder.build")
+
+
+def test_parameter_shadowing_and_no_internal_unresolved(tmp_path: Path):
+    G = _build(
+        tmp_path,
+        {
+            "a.py": """
+def helper(x):
+    return x * 2
+
+def run_callback(node, helper):
+    # helper is a parameter, shadowing global helper
+    return helper(node)
+""",
+        },
+    )
+    stats = G.graph.get("resolution_stats")
+    if stats:
+        assert stats.internal_unresolved == 0
+

@@ -129,16 +129,24 @@ def resolve_local_binding(ctx: ResolutionContext) -> str | _StopResolution | Non
     Resolve ``foo.bar()`` where ``foo`` is a typed local variable
     (i.e. ``foo`` appears in ``local_bindings`` with a type annotation).
 
-    If ``foo`` is in ``local_bindings`` but the class cannot be located,
-    returns ``STOP`` to prevent incorrect global-fallback guessing — the
-    intent of the call is unambiguous even if the class is missing.
+    If ``foo`` is in ``local_bindings``:
+    - If ``len(ctx.parts) <= 1``, this is a direct invocation of a local variable or
+      parameter (e.g. ``callback()``, ``get_text(node)``). Lexical scope shadows any
+      outer or global symbol, so return STOP immediately to prevent fallback guessing.
+    - If ``len(ctx.parts) > 1``, resolve the member access on the receiver class.
+      If the class or member cannot be located, return STOP to prevent global fallback.
     """
-    if len(ctx.parts) <= 1 or ctx.main_symbol not in ctx.local_bindings:
+    if ctx.main_symbol not in ctx.local_bindings:
         return None
+
+    if len(ctx.parts) <= 1:
+        # Direct call to a local variable or parameter shadows outer scope
+        return STOP
 
     result = _resolve_local_binding_impl(ctx)
     # Explicit short-circuit: typed var was found but class is unresolvable
     return result if result else STOP
+
 
 
 def _normalize_type_name(type_name: str) -> str:
@@ -290,6 +298,16 @@ def _transfer_return_type(
         # Fall back to signature extraction via graph node fields is not available
         # here; TypeResolver pre-fills return_types for all methods.
         return None
+    # Fluent pattern: return Self / self keeps current class
+    if ret_name in ("Self", "self"):
+        if "." in method_id:
+            parent_class = method_id.rsplit(".", 1)[0]
+            if parent_class in ctx.node_ids:
+                return parent_class
+        parent_id = ctx.graph_nodes[method_id].get("parent_id")
+        if parent_id and parent_id in ctx.node_ids:
+            return parent_id
+
     return _lookup_class_id(
         ret_name,
         source_file=ctx.graph_nodes[method_id].get("source_file", ctx.source_file),
@@ -341,6 +359,27 @@ def _resolve_local_binding_impl(ctx: ResolutionContext) -> str | None:
             methods_by_class=getattr(ctx, "methods_by_class", None),
         )
         if not method_id:
+            # 1-hop field / attribute projection on class (e.g. ctx.analysis.model_dump)
+            class_fields = ctx.graph_nodes[current_class_id].get("local_bindings", {})
+            if method_name in class_fields:
+                field_type = class_fields[method_name]
+                next_class = _lookup_class_id(
+                    field_type,
+                    source_file=ctx.graph_nodes[current_class_id].get(
+                        "source_file", ctx.source_file
+                    ),
+                    scope=ctx.scope,
+                    node_ids=ctx.node_ids,
+                    graph_nodes=ctx.graph_nodes,
+                    strategy=ctx.strategy,
+                    class_like_symbols=getattr(ctx, "class_like_symbols", None),
+                )
+                if next_class:
+                    current_class_id = next_class
+                    current_receiver_type = ctx.graph_nodes[next_class].get(
+                        "label", next_class
+                    )
+                    continue
             return last_method_id if index == 0 else None
         last_method_id = method_id
         is_last = index == len(segments) - 1
@@ -554,6 +593,22 @@ def resolve_explicit_imports(ctx: ResolutionContext) -> str | _StopResolution | 
                 if sub_target in node_ids:
                     return sub_target
             return target_candidate
+
+        # Re-export resolution: check if original_name is defined in a sibling module under target_file_id
+        if (
+            getattr(ctx, "global_symbol_map", None)
+            and original_name in ctx.global_symbol_map
+        ):
+            target_dir = Path(target_file_id).parent
+            for candidate in ctx.global_symbol_map[original_name]:
+                cand_file = graph_nodes[candidate].get("source_file", "")
+                if cand_file and Path(cand_file).parent == target_dir:
+                    if rest_of_callee:
+                        sub_target = f"{candidate}.{rest_of_callee}"
+                        if sub_target in node_ids:
+                            return sub_target
+                    return candidate
+
         return target_candidate
     return None
 

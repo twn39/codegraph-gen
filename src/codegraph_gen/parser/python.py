@@ -39,6 +39,7 @@ class PythonVisitor(VisitorMixin):
 
         class_name = self.get_text(name_node)
         class_id = f"{self.rel_path}::{class_name}"
+        class_fields = self._collect_class_fields(node)
         self.emit_symbol(
             node=node,
             name=class_name,
@@ -46,6 +47,7 @@ class PythonVisitor(VisitorMixin):
             symbol_id=class_id,
             signature=self.parser._get_signature(node, self.source),
             docstring=self.parser._get_docstring(node, self.source),
+            local_bindings=class_fields,
         )
 
         superclasses = node.child_by_field_name("superclasses")
@@ -57,6 +59,31 @@ class PythonVisitor(VisitorMixin):
 
         with self.scope.push(class_id, "class"):
             self.generic_visit(node)
+
+    def _collect_class_fields(self, node: tree_sitter.Node) -> dict[str, str]:
+        fields: dict[str, str] = {}
+        body = node.child_by_field_name("body")
+        if not body:
+            return fields
+        for stmt in body.children:
+            assign = None
+            if stmt.type == "expression_statement":
+                for child in stmt.children:
+                    if child.type == "assignment":
+                        assign = child
+                        break
+            elif stmt.type == "assignment":
+                assign = stmt
+            if assign:
+                left = assign.child_by_field_name("left") or (
+                    assign.children[0] if assign.children else None
+                )
+                type_ann = assign.child_by_field_name("type")
+                if left and left.type == "identifier" and type_ann:
+                    t_name = extract_type_name(type_ann, self.get_text)
+                    if t_name:
+                        fields[self.get_text(left)] = t_name
+        return fields
 
     def visit_function_definition(self, node: tree_sitter.Node) -> None:
         name_node = node.child_by_field_name("name")
@@ -110,6 +137,16 @@ class PythonVisitor(VisitorMixin):
                         break
                 type_node = n.child_by_field_name("type")
                 bind(var_name, type_node)
+            elif n.type == "identifier" and n.parent and n.parent.type == "parameters":
+                var_name = self.get_text(n)
+                if var_name and var_name not in local_bindings:
+                    local_bindings[var_name] = "Any"
+            elif n.type == "default_parameter":
+                name_node = n.child_by_field_name("name")
+                if name_node and name_node.type == "identifier":
+                    var_name = self.get_text(name_node)
+                    if var_name and var_name not in local_bindings:
+                        local_bindings[var_name] = "Any"
             elif n.type == "assignment":
                 left = n.child_by_field_name("left") or (
                     n.children[0] if n.children else None

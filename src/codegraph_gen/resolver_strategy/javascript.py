@@ -1,4 +1,5 @@
-from codegraph_gen.resolver_strategy.base import LanguageResolverStrategy
+import re
+from codegraph_gen.resolver_strategy.base import LanguageResolverStrategy, _unwrap_type_name
 
 
 class JavaScriptStrategy(LanguageResolverStrategy):
@@ -49,3 +50,10 @@ class TypeScriptStrategy(JavaScriptStrategy):
     name = "typescript"
     file_extensions = {".ts", ".tsx"}
     import_search_suffixes = [".ts", ".tsx"]
+
+    def extract_return_type(self, signature: str) -> str | None:
+        match = re.search(r":\s*([^;={(\n]+)", signature)
+        if match:
+            return _unwrap_type_name(match.group(1))
+        return None
+

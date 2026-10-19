@@ -494,12 +494,15 @@ class TypeResolver:
                     continue
 
                 ok = bool(resolved_tgt and resolved_tgt in self.node_ids)
+                caller_bindings = self.G.nodes[src].get("local_bindings", {})
+                is_local = tgt in caller_bindings
                 category = classify_edge_attempt(
                     relation=rel,
                     target=tgt,
                     resolved=ok,
                     global_symbol_map=self.global_symbol_map,
                     strategy=strategy,
+                    is_local_binding=is_local,
                 )
 
                 stats.attempted += 1
