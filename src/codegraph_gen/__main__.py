@@ -1,24 +1,23 @@
 from pathlib import Path
 import click
-from rich.console import Console
-from rich.table import Table
-from rich.progress import (
-    Progress,
-    SpinnerColumn,
-    TextColumn,
-    BarColumn,
-    MofNCompleteColumn,
-)
 
+from codegraph_gen.cli_ui import (
+    console,
+    pipeline_progress_context,
+    print_build_summary,
+    print_components_table,
+    print_config_summary,
+    print_empty_graph_warning,
+    print_quality_gate_error,
+    print_vault_tips,
+    update_pipeline_progress,
+)
 from codegraph_gen.config import (
     CodegraphConfig,
     DEFAULT_EXCLUSIONS,
     LANGUAGE_EXTENSIONS,
     load_project_config,
-    PROJECT_CONFIG_FILE,
 )
-
-console = Console()
 
 try:
     from importlib.metadata import version
@@ -148,10 +147,6 @@ def build(
     # ── Load project config file (.codegraphrc) ────────────────────────────
     project_cfg = load_project_config(workspace)
 
-    if project_cfg is not None:
-        console.print(
-            f"[dim]📄 Found project config: [underline]{workspace / PROJECT_CONFIG_FILE}[/underline][/dim]"
-        )
 
     # ── Merge: CLI args take priority over .codegraphrc ────────────────────
     # Exclusions: default set + .codegraphrc extras + CLI --exclude (cumulative)
@@ -216,17 +211,7 @@ def build(
         if not include_dirs:
             include_dirs = None  # All entries invalid → fall back to full scan
 
-    # Print effective config summary when a project config was loaded
-    if project_cfg is not None:
-        parts = []
-        if include_dirs:
-            parts.append(f"include: {', '.join(p.name for p in include_dirs)}")
-        if project_cfg.exclude:
-            parts.append(f"extra exclude: {', '.join(project_cfg.exclude)}")
-        if project_cfg.languages:
-            parts.append(f"languages: {', '.join(sorted(languages))}")
-        if parts:
-            console.print(f"[dim]   {' | '.join(parts)}[/dim]")
+    print_config_summary(workspace, project_cfg, include_dirs, languages)
 
     # Clustering / quality options: CLI overrides .codegraphrc, else defaults
     effective_exclude_tests = (
@@ -309,148 +294,28 @@ def build(
         report_language=effective_report_language,
     )
 
-    from codegraph_gen.engine import CodegraphEngine, PipelineStage
+    from codegraph_gen.engine import CodegraphEngine
 
     engine = CodegraphEngine()
 
-    # Run pipeline with click progress bar
-    with Progress(
-        SpinnerColumn(),
-        TextColumn("[progress.description]{task.description}"),
-        BarColumn(),
-        MofNCompleteColumn(),
-        console=console,
-    ) as progress:
-        task = progress.add_task("Initializing...", total=None)
-
-        def progress_callback(stage: PipelineStage, current_item, idx, total):
-            if stage == PipelineStage.DISCOVERING:
-                progress.update(task, description="Discovering source files...")
-            elif stage == PipelineStage.PARSING:
-                if total > 0:
-                    progress.update(task, total=total)
-                progress.update(
-                    task,
-                    description=f"Parsing {current_item.name if current_item else ''}",
-                    completed=idx,
-                )
-            elif stage == PipelineStage.BUILDING:
-                progress.update(task, description="Building reference graph...")
-            elif stage == PipelineStage.CLUSTERING:
-                progress.update(task, description="Clustering components...")
-            elif stage == PipelineStage.ANALYZING:
-                progress.update(task, description="Analyzing graph metrics...")
-            elif stage == PipelineStage.RENDERING:
-                progress.update(task, description="Rendering Markdown vault...")
-            elif stage == PipelineStage.WRITING:
-                progress.update(task, description="Writing files to disk...")
-            elif stage == PipelineStage.COMPLETED:
-                progress.update(task, description="Done!")
+    with pipeline_progress_context() as (progress, task):
+        def progress_callback(stage, current_item, idx, total):
+            update_pipeline_progress(progress, task, stage, current_item, idx, total)
 
         try:
             result = engine.run_pipeline(config, progress_callback=progress_callback)
         except RuntimeError as e:
             progress.update(task, description="Failed quality gate")
-            console.print(f"[bold red]Quality gate failed:[/bold red] {e}")
+            print_quality_gate_error(e)
             raise SystemExit(1) from e
 
-    G = result.graph
-    if G.number_of_nodes() == 0:
-        console.print("[bold yellow]Completed build, but graph is empty.[/bold yellow]")
+    if result.graph.number_of_nodes() == 0:
+        print_empty_graph_warning()
         return
 
-    files_count = len(result.files)
-    symbols_count = G.number_of_nodes() - files_count
-
-    console.print(f"Found [green]{files_count}[/green] supported files to analyze.")
-    console.print(
-        f"Assembled graph with [green]{G.number_of_nodes()}[/green] nodes and [green]{G.number_of_edges()}[/green] edges."
-    )
-    console.print(f"  - Files: {files_count}")
-    console.print(f"  - Symbols (Classes/Functions/Methods): {symbols_count}")
-
-    if result.analysis.resolution is not None:
-        res = result.analysis.resolution
-        console.print(
-            f"  - Edge resolution: [green]{res.resolved}[/green]/{res.attempted} "
-            f"([cyan]{100.0 * res.resolve_rate:.1f}%[/cyan]), unresolved={res.unresolved}"
-        )
-        console.print(
-            f"  - Internal resolution: [green]{res.internal_resolved}[/green]/"
-            f"{res.internal_attempted} "
-            f"([cyan]{100.0 * res.internal_resolve_rate:.1f}%[/cyan]), "
-            f"internal_unresolved={res.internal_unresolved}"
-        )
-        console.print(
-            f"  - Unresolved by category: external={res.category_unresolved('external')}, "
-            f"builtin={res.category_unresolved('builtin')}, "
-            f"attribute={res.category_unresolved('attribute')}, "
-            f"internal={res.category_unresolved('internal')}"
-        )
-
-    write_stats = G.graph.get("vault_write_stats")
-    if write_stats:
-        console.print(
-            f"  - Vault write: written={write_stats.get('written', 0)}, "
-            f"skipped={write_stats.get('skipped', 0)}, removed={write_stats.get('removed', 0)}"
-        )
-
-    render_stats = G.graph.get("render_stats")
-    if render_stats:
-        console.print(
-            f"  - Incremental render: nodes "
-            f"{render_stats.get('nodes_rendered', 0)} rendered / "
-            f"{render_stats.get('nodes_reused', 0)} reused; components "
-            f"{render_stats.get('components_rendered', 0)} / "
-            f"{render_stats.get('components_reused', 0)} "
-            f"(dirty_files={render_stats.get('dirty_files', 0)})"
-        )
-
-    if export_json:
-        console.print(
-            f"  - JSON export: [underline]{config.absolute_output_dir / 'graph.json'}[/underline]"
-        )
-
-    if result.parse_errors:
-        console.print(
-            f"  - [yellow]Parse errors: {len(result.parse_errors)}[/yellow] "
-            f"(use --strict to fail the build)"
-        )
-        for err in result.parse_errors[:5]:
-            short = err if len(err) <= 160 else err[:157] + "..."
-            console.print(f"      [dim]- {short}[/dim]")
-        if len(result.parse_errors) > 5:
-            console.print(f"      [dim]… and {len(result.parse_errors) - 5} more[/dim]")
-
-    if G.graph.get("pipeline_reused_snapshot"):
-        console.print(
-            "  - [cyan]Pipeline snapshot reused[/cyan] "
-            "(skipped build/resolve/cluster/analyze)"
-        )
-
-    console.print(
-        "[bold green]Success! Codebase knowledge graph built successfully.[/bold green]"
-    )
-
-    table = Table(title="Logical Components Summary")
-    table.add_column("Component Name", style="cyan", no_wrap=True)
-    table.add_column("Cohesion (Density)", style="magenta")
-    table.add_column("Size (Nodes)", style="green")
-
-    for cid, members in result.components.items():
-        table.add_row(
-            result.component_names[cid],
-            str(result.cohesion_scores[cid]),
-            str(len(members)),
-        )
-
-    console.print(table)
-    console.print(
-        f"\nView the main graph entrypoint at: [bold underline]{config.absolute_output_dir}/README.md[/bold underline]"
-    )
-    console.print(
-        f"💡 [bold yellow]AI Insight Tip:[/bold yellow] Ask your AI Agent (e.g. Antigravity, Claude Code, Codex) to read [bold]{config.absolute_output_dir}/AGENT_PROMPT.md[/bold] and write the architectural report directly to [bold]{config.absolute_output_dir}/README.md[/bold].\n"
-    )
+    print_build_summary(result, config)
+    print_components_table(result)
+    print_vault_tips(config.absolute_output_dir)
 
 
 @cli.command()

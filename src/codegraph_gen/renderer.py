@@ -2,7 +2,13 @@ import functools
 import re
 from pathlib import Path
 import networkx as nx
+
 from codegraph_gen.analyzer import AnalysisResult
+from codegraph_gen.mermaid_util import (
+    build_mermaid_call_edge,
+    render_component_flowchart,
+    render_node_call_graph_block,
+)
 
 _NODE_CLEAN_RE = re.compile(r'[\\/.: *?#^[\]"<>|]+')
 _COMP_CLEAN_RE = re.compile(r'[\\/.: *?#^[\]"<>|()]+')
@@ -208,10 +214,8 @@ class MarkdownRenderer:
                 outgoing.append(
                     f"- Calls [{target_label}]({target_file}) (`{target_data.get('type')}`)"
                 )
-                src_m_id = re.sub(r"[^a-zA-Z0-9_]", "_", nid)
-                tgt_m_id = re.sub(r"[^a-zA-Z0-9_]", "_", target)
                 mermaid_calls.append(
-                    f'  {src_m_id}["{label}"] --> {tgt_m_id}["{target_label}"]'
+                    build_mermaid_call_edge(nid, label, target, target_label)
                 )
 
         # Incoming edges
@@ -239,10 +243,8 @@ class MarkdownRenderer:
                 incoming.append(
                     f"- Called by [{source_label}]({source_file}) (`{source_data.get('type')}`)"
                 )
-                src_m_id = re.sub(r"[^a-zA-Z0-9_]", "_", source)
-                tgt_m_id = re.sub(r"[^a-zA-Z0-9_]", "_", nid)
                 mermaid_calls.append(
-                    f'  {src_m_id}["{source_label}"] --> {tgt_m_id}["{label}"]'
+                    build_mermaid_call_edge(source, source_label, nid, label)
                 )
 
         if contained_in_parent:
@@ -265,9 +267,7 @@ class MarkdownRenderer:
 
         if outgoing or incoming:
             lines += ["## Call Graph"]
-            if mermaid_calls:
-                uniq_m_calls = sorted(list(set(mermaid_calls)))
-                lines += ["```mermaid", "flowchart TD", *uniq_m_calls, "```", ""]
+            lines += render_node_call_graph_block(mermaid_calls)
             if outgoing:
                 lines += ["### Outgoing Calls", *outgoing, ""]
             if incoming:
@@ -381,25 +381,9 @@ class MarkdownRenderer:
         ]
 
         # Build Mermaid graph
-        mermaid_lines = ["flowchart TD"]
-        has_relations = False
-        for src_cid, targets in analysis.inter_comp_deps.items():
-            src_name = component_names[src_cid]
-            src_id = f"comp_{src_cid}"
-            for tgt_cid, weight in targets.items():
-                tgt_name = component_names[tgt_cid]
-                tgt_id = f"comp_{tgt_cid}"
-                mermaid_lines.append(
-                    f'  {src_id}["{src_name}"] -->|{weight}| {tgt_id}["{tgt_name}"]'
-                )
-                has_relations = True
-
-        if not has_relations:
-            for cid, name in component_names.items():
-                cid_id = f"comp_{cid}"
-                mermaid_lines.append(f'  {cid_id}["{name}"]')
-
-        mermaid_graph = "\n".join(mermaid_lines)
+        mermaid_graph = render_component_flowchart(
+            analysis.inter_comp_deps, component_names
+        )
         readme_lines += ["```mermaid", mermaid_graph, "```", ""]
 
         readme_lines += [
@@ -541,24 +525,9 @@ class MarkdownRenderer:
             cycle_str = "\n".join(cycle_list) if cycle_list else "No circular imports"
 
         # Generate Mermaid component graph
-        mermaid_lines = ["flowchart TD"]
-        has_relations = False
-        for src_cid, targets in analysis.inter_comp_deps.items():
-            src_name = component_names[src_cid]
-            src_id = f"comp_{src_cid}"
-            for tgt_cid, weight in targets.items():
-                tgt_name = component_names[tgt_cid]
-                tgt_id = f"comp_{tgt_cid}"
-                mermaid_lines.append(
-                    f'  {src_id}["{src_name}"] -->|{weight}| {tgt_id}["{tgt_name}"]'
-                )
-                has_relations = True
-
-        if not has_relations:
-            for cid, name in component_names.items():
-                cid_id = f"comp_{cid}"
-                mermaid_lines.append(f'  {cid_id}["{name}"]')
-        mermaid_graph = "\n".join(mermaid_lines)
+        mermaid_graph = render_component_flowchart(
+            analysis.inter_comp_deps, component_names
+        )
 
         if lang.startswith("zh"):
             prompt = f"""# Codebase Architecture Analysis Prompt
