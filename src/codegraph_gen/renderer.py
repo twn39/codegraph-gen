@@ -473,6 +473,18 @@ class MarkdownRenderer:
 
         if not ai_insights:
             ai_insights = """> 💡 **Tip**: AI architectural insights have not been generated yet. Please use your AI Agent (e.g., Antigravity, Claude Code, Codex) to read the prompt in `.codegraph/AGENT_PROMPT.md` and fill in the analysis results here."""
+        else:
+            drift_match = re.search(r"(\d+)\s+files\s*·\s*(\d+)\s+symbols", ai_insights)
+            if drift_match:
+                old_files = int(drift_match.group(1))
+                old_symbols = int(drift_match.group(2))
+                if old_files != files_count or old_symbols != symbols_count:
+                    notice = (
+                        f"> ⚠️ *Baseline drift notice: these insights were written when "
+                        f"the graph had {old_files} files / {old_symbols} symbols "
+                        f"(current: {files_count} files / {symbols_count} symbols).*"
+                    )
+                    ai_insights = f"{notice}\n\n{ai_insights}"
 
         readme_lines += [
             "## AI Architectural Insights",

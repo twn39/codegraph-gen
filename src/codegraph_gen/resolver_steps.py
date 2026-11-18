@@ -28,76 +28,6 @@ from typing import Callable
 
 from codegraph_gen.resolver_context import ResolutionContext, STOP, _StopResolution
 
-# Common builtin/standard library method names to avoid incorrect resolution during global fallback
-COMMON_BUILTIN_METHODS: set[str] = {
-    "append",
-    "decode",
-    "encode",
-    "insert",
-    "remove",
-    "contains",
-    "push",
-    "pop",
-    "split",
-    "join",
-    "map",
-    "filter",
-    "reduce",
-    "forEach",
-    "sorted",
-    "count",
-    "length",
-    "size",
-    "isEmpty",
-    "resume",
-    "cancel",
-    "suspend",
-    "start",
-    "stop",
-    "send",
-    "receive",
-    "len",
-    "new",
-    "is_empty",
-    "clone",
-    "default",
-    "parse",
-    "format",
-    "read",
-    "write",
-    "close",
-    "flush",
-    "to_string",
-    "to_str",
-    "as_str",
-    "as_ref",
-    "as_mut",
-    "unwrap",
-    "expect",
-    "iter",
-    "iter_mut",
-    "into_iter",
-    "next",
-    "into",
-    "from",
-    "ok",
-    "err",
-    "clear",
-    "get",
-    "set",
-    "add",
-    "keys",
-    "values",
-    "items",
-    "update",
-    "copy",
-    "find",
-    "index",
-    "last",
-    "first",
-}
-
-
 logger = logging.getLogger(__name__)
 
 # Type alias for a single resolution step
@@ -146,7 +76,6 @@ def resolve_local_binding(ctx: ResolutionContext) -> str | _StopResolution | Non
     result = _resolve_local_binding_impl(ctx)
     # Explicit short-circuit: typed var was found but class is unresolvable
     return result if result else STOP
-
 
 
 def _normalize_type_name(type_name: str) -> str:
@@ -501,37 +430,17 @@ def resolve_package_siblings(ctx: ResolutionContext) -> str | _StopResolution | 
     main_symbol = ctx.main_symbol
     rest_of_callee = ctx.rest_of_callee
     node_ids = ctx.node_ids
-    graph_nodes = ctx.graph_nodes
 
     caller_dir = str(Path(source_file).parent)
-    candidate_nids = (
-        ctx.dir_to_symbols.get(caller_dir, ())
-        if getattr(ctx, "dir_to_symbols", None)
-        else None
-    )
-    if candidate_nids is not None:
-        target_suffix = f"::{main_symbol}"
-        for nid in candidate_nids:
-            if nid.endswith(target_suffix):
-                if rest_of_callee:
-                    sub_target = f"{nid}.{rest_of_callee}"
-                    if sub_target in node_ids:
-                        return sub_target
-                return nid
-    else:
-        caller_dir_path = Path(source_file).parent
-        for nid in node_ids:
-            ndata = graph_nodes[nid]
-            if ndata.get("type") == "file":
-                continue
-            node_file = ndata.get("source_file", "")
-            if node_file and Path(node_file).parent == caller_dir_path:
-                if nid.endswith(f"::{main_symbol}"):
-                    if rest_of_callee:
-                        sub_target = f"{nid}.{rest_of_callee}"
-                        if sub_target in node_ids:
-                            return sub_target
-                    return nid
+    candidate_nids = ctx.dir_to_symbols.get(caller_dir, ())
+    target_suffix = f"::{main_symbol}"
+    for nid in candidate_nids:
+        if nid.endswith(target_suffix):
+            if rest_of_callee:
+                sub_target = f"{nid}.{rest_of_callee}"
+                if sub_target in node_ids:
+                    return sub_target
+            return nid
     return None
 
 
@@ -564,22 +473,11 @@ def resolve_explicit_imports(ctx: ResolutionContext) -> str | _StopResolution | 
             target_candidate = f"{target_file_id}::{rest_of_callee}"
             if target_candidate in node_ids:
                 return target_candidate
-            file_candidates = (
-                ctx.file_to_nodes.get(target_file_id, ())
-                if getattr(ctx, "file_to_nodes", None)
-                else None
-            )
-            if file_candidates is not None:
-                leaf_suffix = f".{parts[-1]}"
-                for nid in file_candidates:
-                    if nid.endswith(leaf_suffix):
-                        return nid
-            else:
-                for nid in node_ids:
-                    if graph_nodes[nid].get(
-                        "source_file"
-                    ) == target_file_id and nid.endswith(f".{parts[-1]}"):
-                        return nid
+            file_candidates = ctx.file_to_nodes.get(target_file_id, ())
+            leaf_suffix = f".{parts[-1]}"
+            for nid in file_candidates:
+                if nid.endswith(leaf_suffix):
+                    return nid
         else:
             target_candidate = f"{target_file_id}::{main_symbol}"
             if target_candidate in node_ids:
@@ -669,7 +567,7 @@ def resolve_global_fallback(ctx: ResolutionContext) -> str | _StopResolution | N
         return None
 
     search_label = parts[-1] if len(parts) > 1 else main_symbol
-    if len(parts) > 1 and search_label in COMMON_BUILTIN_METHODS:
+    if len(parts) > 1 and ctx.strategy.is_common_builtin_method(search_label):
         return None
 
     candidates = ctx.global_symbol_map.get(search_label, [])

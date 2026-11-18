@@ -147,7 +147,6 @@ def build(
     # ── Load project config file (.codegraphrc) ────────────────────────────
     project_cfg = load_project_config(workspace)
 
-
     # ── Merge: CLI args take priority over .codegraphrc ────────────────────
     # Exclusions: default set + .codegraphrc extras + CLI --exclude (cumulative)
     exclusions = set(DEFAULT_EXCLUSIONS)
@@ -299,6 +298,7 @@ def build(
     engine = CodegraphEngine()
 
     with pipeline_progress_context() as (progress, task):
+
         def progress_callback(stage, current_item, idx, total):
             update_pipeline_progress(progress, task, stage, current_item, idx, total)
 

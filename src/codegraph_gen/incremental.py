@@ -20,14 +20,61 @@ from pathlib import Path
 from typing import Any
 
 import networkx as nx
+from pydantic import TypeAdapter
 
 from codegraph_gen.analyzer import AnalysisResult, ResolutionStats
+from codegraph_gen.config import CacheEntry
 
 logger = logging.getLogger(__name__)
 
 SIGNATURE_STORE_NAME = "node_signatures.json"
 PIPELINE_SNAPSHOT_NAME = "pipeline_snapshot.json"
 SNAPSHOT_VERSION = 1
+
+_CACHE_ADAPTER: TypeAdapter[dict[str, CacheEntry]] = TypeAdapter(dict[str, CacheEntry])
+
+
+def get_file_hash(path: Path) -> str:
+    """Computes MD5 hash of a file."""
+    hasher = hashlib.md5()
+    try:
+        with open(path, "rb") as f:
+            for chunk in iter(lambda: f.read(65536), b""):
+                hasher.update(chunk)
+        return hasher.hexdigest()
+    except Exception as e:
+        logger.warning(f"Could not hash file {path}: {e}")
+        return ""
+
+
+def load_cache_entries(cache_path: Path) -> dict[str, CacheEntry]:
+    """Loads parse cache entries using fast TypeAdapter with JSON fallback."""
+    cache_entries: dict[str, CacheEntry] = {}
+    if not cache_path.exists():
+        return cache_entries
+    try:
+        raw_bytes = cache_path.read_bytes()
+        if raw_bytes:
+            cache_entries = _CACHE_ADAPTER.validate_json(raw_bytes)
+            logger.info(f"Loaded {len(cache_entries)} cache entries.")
+    except Exception as e:
+        logger.warning(f"Could not load cache with fast adapter, trying fallback: {e}")
+        try:
+            with open(cache_path, "r", encoding="utf-8") as f:
+                cache_data = json.load(f)
+                for k, v in cache_data.items():
+                    cache_entries[k] = CacheEntry(**v)
+            logger.info(f"Loaded {len(cache_entries)} cache entries via fallback.")
+        except Exception as e2:
+            logger.warning(f"Could not load cache: {e2}")
+    return cache_entries
+
+
+def save_cache_entries(cache_path: Path, entries: dict[str, CacheEntry]) -> None:
+    """Persist parse cache entries to disk."""
+    cache_path.parent.mkdir(parents=True, exist_ok=True)
+    cache_path.write_bytes(_CACHE_ADAPTER.dump_json(entries))
+    logger.info(f"Saved {len(entries)} cache entries.")
 
 
 def _stable_hash(payload: Any) -> str:

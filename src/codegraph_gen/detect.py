@@ -1,3 +1,4 @@
+import fnmatch
 import logging
 import os
 from pathlib import Path
@@ -40,21 +41,50 @@ def discover_files(
 
     name_exclusions: set[str] = set()
     path_exclusions: set[str] = set()
+    name_globs: list[str] = []
+    path_globs: list[str] = []
     for exc in exclusions:
         exc_norm = exc.strip("/\\").lower().replace("\\", "/")
-        if "/" in exc_norm:
+        if not exc_norm:
+            continue
+        has_glob = any(ch in exc_norm for ch in ("*", "?", "["))
+        if has_glob:
+            if "/" in exc_norm:
+                path_globs.append(exc_norm)
+            else:
+                name_globs.append(exc_norm)
+        elif "/" in exc_norm:
             path_exclusions.add(exc_norm)
         else:
             name_exclusions.add(exc_norm)
+
+    def matches_exclusion(name_lower: str, rel_str: str) -> bool:
+        if name_lower in name_exclusions:
+            return True
+        if name_globs and any(
+            fnmatch.fnmatchcase(name_lower, pat) for pat in name_globs
+        ):
+            return True
+        if path_exclusions and any(
+            rel_str == pe or rel_str.startswith(pe + "/") for pe in path_exclusions
+        ):
+            return True
+        if path_globs and any(fnmatch.fnmatchcase(rel_str, pat) for pat in path_globs):
+            return True
+        return False
 
     def is_path_excluded(rel_parts: tuple[str, ...], rel_str: str) -> bool:
         for part in rel_parts:
             if part in name_exclusions:
                 return True
-        if path_exclusions:
-            for pe in path_exclusions:
-                if rel_str == pe or rel_str.startswith(pe + "/"):
-                    return True
+            if name_globs and any(fnmatch.fnmatchcase(part, pat) for pat in name_globs):
+                return True
+        if path_exclusions and any(
+            rel_str == pe or rel_str.startswith(pe + "/") for pe in path_exclusions
+        ):
+            return True
+        if path_globs and any(fnmatch.fnmatchcase(rel_str, pat) for pat in path_globs):
+            return True
         return False
 
     def scan_dir(dir_path: str, rel_parts: tuple[str, ...]) -> None:
@@ -62,14 +92,9 @@ def discover_files(
             with os.scandir(dir_path) as entries:
                 for entry in entries:
                     name_lower = entry.name.lower()
-                    if name_lower in name_exclusions:
-                        continue
                     child_rel_parts = rel_parts + (name_lower,)
                     child_rel_str = "/".join(child_rel_parts)
-                    if path_exclusions and any(
-                        child_rel_str == pe or child_rel_str.startswith(pe + "/")
-                        for pe in path_exclusions
-                    ):
+                    if matches_exclusion(name_lower, child_rel_str):
                         continue
 
                     try:

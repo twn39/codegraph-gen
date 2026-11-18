@@ -30,6 +30,7 @@ def graph_to_export_dict(
                 "line_start": data.get("line_start"),
                 "line_end": data.get("line_end"),
                 "signature": data.get("signature", ""),
+                "docstring": data.get("docstring", ""),
             }
         )
 

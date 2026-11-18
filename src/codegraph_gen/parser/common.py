@@ -128,24 +128,30 @@ _UNWRAP_GENERIC_HEADS: frozenset[str] = frozenset(
 )
 
 
-def _first_type_param_name(node: tree_sitter.Node, get_text) -> str | None:
+def _first_type_param_name(
+    node: tree_sitter.Node, get_text, *, _depth: int = 0
+) -> str | None:
     """Extract the first meaningful type argument from a generic type_parameter."""
+    if _depth >= 16:
+        return None
     for child in node.children:
         if child.type in ("[", "]", ",", "type_parameter"):
             if child.type == "type_parameter":
-                inner = _first_type_param_name(child, get_text)
+                inner = _first_type_param_name(child, get_text, _depth=_depth + 1)
                 if inner:
                     return inner
             continue
         if child.type == "none":
             continue
-        name = extract_type_name(child, get_text)
+        name = extract_type_name(child, get_text, _depth=_depth + 1)
         if name and name not in ("None", "none", "..."):
             return name
     return None
 
 
-def extract_type_name(node: tree_sitter.Node, get_text) -> str | None:
+def extract_type_name(
+    node: tree_sitter.Node, get_text, *, _depth: int = 0
+) -> str | None:
     """Best-effort type name from identifier / attribute / call / type wrappers.
 
     Handles common Python typing forms:
@@ -155,7 +161,7 @@ def extract_type_name(node: tree_sitter.Node, get_text) -> str | None:
     - ``list[Client]`` keeps the outer container head only when it is not a
       pure wrapper (so callers still see ``list``); wrappers above unwrap.
     """
-    if node is None:
+    if node is None or _depth >= 16:
         return None
     if node.type == "identifier":
         return get_text(node)
@@ -187,11 +193,11 @@ def extract_type_name(node: tree_sitter.Node, get_text) -> str | None:
             if child.type == "identifier":
                 head = get_text(child)
             elif child.type == "attribute":
-                head = extract_type_name(child, get_text)
+                head = extract_type_name(child, get_text, _depth=_depth + 1)
             elif child.type == "type_parameter":
                 type_param = child
         if head in _UNWRAP_GENERIC_HEADS and type_param is not None:
-            inner = _first_type_param_name(type_param, get_text)
+            inner = _first_type_param_name(type_param, get_text, _depth=_depth + 1)
             if inner:
                 return inner
         if head:
@@ -202,21 +208,21 @@ def extract_type_name(node: tree_sitter.Node, get_text) -> str | None:
         for child in node.children:
             if child.type in ("|",):
                 continue
-            name = extract_type_name(child, get_text)
+            name = extract_type_name(child, get_text, _depth=_depth + 1)
             if name and name not in ("None", "none"):
                 names.append(name)
         return names[0] if names else None
     if node.type == "type":
         for child in node.children:
-            res = extract_type_name(child, get_text)
+            res = extract_type_name(child, get_text, _depth=_depth + 1)
             if res:
                 return res
     if node.type == "call":
         func_node = node.child_by_field_name("function")
         if func_node:
-            return extract_type_name(func_node, get_text)
+            return extract_type_name(func_node, get_text, _depth=_depth + 1)
     for child in node.children:
-        res = extract_type_name(child, get_text)
+        res = extract_type_name(child, get_text, _depth=_depth + 1)
         if res:
             return res
     return None

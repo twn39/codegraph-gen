@@ -8,15 +8,15 @@ from typing import Optional
 
 from codegraph_gen.config import CacheEntry, CodegraphConfig
 from codegraph_gen.detect import discover_files
+from codegraph_gen.incremental import get_file_hash
 from codegraph_gen.pipeline_stages import (
     PipelineContext,
     PipelineResult,
     PipelineStage,
     ProgressCallback,
-    _enforce_parse_errors,
-    _enforce_quality_gates,
+    RenderStats,
+    VaultWriteStats,
     empty_pipeline_result,
-    get_file_hash,
     parse_files_with_cache,
     run_stage_analyze_and_check,
     run_stage_build_and_cluster,
@@ -38,6 +38,8 @@ __all__ = [
     "PipelineResult",
     "PipelineStage",
     "ProgressCallback",
+    "RenderStats",
+    "VaultWriteStats",
     "discover_files",
     "get_file_hash",
 ]
@@ -45,9 +47,6 @@ __all__ = [
 
 class CodegraphEngine:
     """Coordinates execution of the end-to-end knowledge graph pipeline."""
-
-    _enforce_quality_gates = staticmethod(_enforce_quality_gates)
-    _enforce_parse_errors = staticmethod(_enforce_parse_errors)
 
     def __init__(self, writer: Optional[VaultWriter] = None):
         self.writer = writer if writer is not None else VaultWriter()

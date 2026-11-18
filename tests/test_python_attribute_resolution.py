@@ -196,4 +196,3 @@ def run_callback(node, helper):
     stats = G.graph.get("resolution_stats")
     if stats:
         assert stats.internal_unresolved == 0
-

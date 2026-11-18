@@ -181,8 +181,10 @@ def test_min_internal_resolve_rate_gate(tmp_path: Path):
         output_dir=tmp_path / ".codegraph",
         min_internal_resolve_rate=0.9,
     )
+    from codegraph_gen.pipeline_stages import _enforce_quality_gates
+
     with pytest.raises(RuntimeError, match="Internal edge resolve rate"):
-        CodegraphEngine._enforce_quality_gates(config, stats)
+        _enforce_quality_gates(config, stats)
 
 
 def test_max_internal_unresolved_edges_gate(tmp_path: Path):
@@ -199,8 +201,10 @@ def test_max_internal_unresolved_edges_gate(tmp_path: Path):
         output_dir=tmp_path / ".codegraph",
         max_internal_unresolved_edges=1,
     )
+    from codegraph_gen.pipeline_stages import _enforce_quality_gates
+
     with pytest.raises(RuntimeError, match="Internal unresolved edges"):
-        CodegraphEngine._enforce_quality_gates(config, stats)
+        _enforce_quality_gates(config, stats)
 
 
 def test_go_emit_symbol_parent_for_methods(tmp_path: Path):

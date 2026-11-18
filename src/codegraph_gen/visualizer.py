@@ -1,87 +1,175 @@
 import json
 import webbrowser
 from pathlib import Path
+from typing import Any
+
 import networkx as nx
 
 from codegraph_gen.builder import build_graph
-from codegraph_gen.config import CacheEntry
+from codegraph_gen.cluster import detect_components
+from codegraph_gen.incremental import PIPELINE_SNAPSHOT_NAME, load_cache_entries
 
 
-def generate_visualization(
-    workspace_dir: Path, output_dir: Path, open_browser: bool = True
-) -> Path:
+def _load_graph_for_visualization(
+    workspace_dir: Path, output_dir: Path
+) -> tuple[nx.DiGraph, dict[str, str]]:
+    """Load the resolved graph and component map from the single source of truth.
+
+    Resolution order:
+    1. ``graph.json`` (preferred SSOT emitted by ``codegraph build``)
+    2. ``pipeline_snapshot.json`` (when built with ``--no-export-json``)
+    3. ``cache.json`` fallback (rebuild + cluster if neither artifact exists)
     """
-    Rebuilds the resolved graph from the cache and exports an interactive HTML visualization.
-    """
-    # Import locally to fail gracefully only when the function is called
-    try:
-        import plotly.graph_objects as go
-    except ImportError:
-        raise ImportError(
-            "Plotly is not installed. Please run 'pip install plotly' or 'uv pip install plotly'."
-        )
+    graph_json_path = output_dir / "graph.json"
+    if graph_json_path.is_file():
+        payload = json.loads(graph_json_path.read_text(encoding="utf-8"))
+        G = nx.DiGraph()
+        for node in payload.get("nodes", []):
+            nid = node["id"]
+            G.add_node(
+                nid,
+                label=node.get("label", nid),
+                type=node.get("type", "unknown"),
+                source_file=node.get("source_file", "N/A"),
+                line_start=node.get("line_start", "?"),
+                line_end=node.get("line_end", "?"),
+                signature=node.get("signature", ""),
+                docstring=node.get("docstring", ""),
+            )
+        for edge in payload.get("edges", []):
+            G.add_edge(
+                edge["source"],
+                edge["target"],
+                relation=edge.get("relation", "other"),
+            )
+        node_to_component: dict[str, str] = {}
+        for comp in payload.get("components", []):
+            comp_name = comp.get("name", f"Component {comp.get('id', '?')}")
+            for member in comp.get("members", []):
+                node_to_component[member] = comp_name
+        return G, node_to_component
 
-    try:
-        import numpy  # noqa: F401
-    except ImportError:
-        raise ImportError(
-            "NumPy is not installed. Please run 'pip install numpy' or 'uv pip install numpy'."
-        )
+    snapshot_path = output_dir / PIPELINE_SNAPSHOT_NAME
+    if snapshot_path.is_file():
+        snap_payload = json.loads(snapshot_path.read_text(encoding="utf-8"))
+        G = nx.node_link_graph(snap_payload["graph"])
+        comp_names = {
+            int(k): str(v) for k, v in snap_payload.get("component_names", {}).items()
+        }
+        node_to_component = {}
+        for cid_str, members in snap_payload.get("components", {}).items():
+            comp_name = comp_names.get(int(cid_str), f"Component {cid_str}")
+            for member in members:
+                node_to_component[member] = comp_name
+        return G, node_to_component
 
     cache_path = output_dir / "cache.json"
     if not cache_path.exists():
         raise FileNotFoundError(
-            f"Cache file not found at {cache_path}. Please run 'codegraph build' first to populate the cache."
+            f"Graph data not found in {output_dir}. Please run 'codegraph build' first."
         )
 
-    with open(cache_path, "r", encoding="utf-8") as f:
-        cache_data = json.load(f)
-
-    extractions = []
-    for k, v in cache_data.items():
-        entry = CacheEntry(**v)
-        extractions.append(entry.result)
-
-    # Rebuild the fully resolved graph
+    cache_entries = load_cache_entries(cache_path)
+    extractions = [entry.result for entry in cache_entries.values()]
     G = build_graph(extractions, workspace_dir)
+    components, _, comp_names = detect_components(G)
+    node_to_component = {}
+    for cid, members in components.items():
+        comp_name = comp_names.get(cid, f"Component {cid}")
+        for member in members:
+            node_to_component[member] = comp_name
+    return G, node_to_component
 
-    # Calculate 2D layout using NetworkX force-directed layout
-    pos = nx.spring_layout(
-        G, k=1.3 / (G.number_of_nodes() ** 0.5), iterations=120, seed=42
-    )
 
-    # Color Palette for Node Types
+def _compute_layout(G: nx.DiGraph) -> dict[str, Any]:
+    """Compute 2D force-directed layout positions with adaptive iteration count."""
+    n = G.number_of_nodes()
+    if n == 0:
+        return {}
+    iterations = 120 if n <= 1000 else 60
+    k = 1.3 / (n**0.5)
+    try:
+        return nx.spring_layout(G, k=k, iterations=iterations, seed=42)
+    except ImportError:
+        # NetworkX >=3.6 requires scipy for spring_layout when n >= 500.
+        # Fall back to vectorized NumPy force-directed layout when scipy is absent.
+        if n > 2500:
+            return nx.circular_layout(G)
+        import numpy as np
+
+        rng = np.random.default_rng(42)
+        nodes = list(G.nodes())
+        idx = {nid: i for i, nid in enumerate(nodes)}
+        pos = rng.uniform(-1.0, 1.0, size=(n, 2)).astype(np.float64)
+        edges = np.array(
+            [(idx[u], idx[v]) for u, v in G.edges() if u != v], dtype=np.int64
+        )
+        t = 0.2
+        dt = t / float(iterations + 1)
+        for _ in range(iterations):
+            delta = pos[:, None, :] - pos[None, :, :]
+            dist = np.linalg.norm(delta, axis=2)
+            np.clip(dist, 0.01, None, out=dist)
+            disp = np.einsum("ijk,ij->ik", delta, (k * k) / (dist * dist))
+            if len(edges) > 0:
+                u_idx = edges[:, 0]
+                v_idx = edges[:, 1]
+                e_delta = pos[u_idx] - pos[v_idx]
+                e_dist = np.linalg.norm(e_delta, axis=1)
+                np.clip(e_dist, 0.01, None, out=e_dist)
+                attract = e_delta * (e_dist / k)[:, None]
+                np.add.at(disp, u_idx, -attract)
+                np.add.at(disp, v_idx, attract)
+            length = np.linalg.norm(disp, axis=1)
+            np.clip(length, 0.01, None, out=length)
+            pos += disp * (np.minimum(length, t) / length)[:, None]
+            t -= dt
+        pos -= pos.mean(axis=0)
+        max_abs = np.max(np.abs(pos))
+        if max_abs > 0:
+            pos /= max_abs
+        return {
+            nid: (float(pos[i, 0]), float(pos[i, 1])) for i, nid in enumerate(nodes)
+        }
+
+
+def _build_plotly_html(
+    G: nx.DiGraph,
+    pos: dict[str, Any],
+    node_to_component: dict[str, str],
+    go: Any,
+) -> str:
+    """Render an interactive Plotly HTML page with a glassmorphism detail sidebar."""
     type_colors = {
-        "file": "#3b82f6",  # Bright Blue
-        "class": "#a855f7",  # Purple
-        "struct": "#c084fc",  # Light Purple
-        "interface": "#e9d5ff",  # Very Light Purple
-        "enum": "#86198f",  # Dark Magenta/Purple
-        "function": "#10b981",  # Emerald Green
-        "method": "#ef4444",  # Red-Orange
+        "file": "#3b82f6",
+        "class": "#a855f7",
+        "struct": "#c084fc",
+        "interface": "#e9d5ff",
+        "enum": "#86198f",
+        "function": "#10b981",
+        "method": "#ef4444",
     }
-    default_color = "#9ca3af"  # Gray
+    default_color = "#9ca3af"
 
-    # Group nodes by type for separate Plotly traces (enabling interactive legend toggling)
-    nodes_by_type = {}
+    nodes_by_type: dict[str, list[tuple[str, dict[str, Any]]]] = {}
     for node_id, data in G.nodes(data=True):
         ntype = data.get("type", "unknown")
         nodes_by_type.setdefault(ntype, []).append((node_id, data))
 
-    # Create Plotly Figure
     fig = go.Figure()
 
-    # 1. Draw Edges as Line Traces (grouped by relation type to reduce clutter/render efficiently)
-    edge_x = {
+    edge_x: dict[str, list[float | None]] = {
         rel: []
         for rel in ["imports", "calls", "inherits", "implements", "contains", "other"]
     }
-    edge_y = {
+    edge_y: dict[str, list[float | None]] = {
         rel: []
         for rel in ["imports", "calls", "inherits", "implements", "contains", "other"]
     }
 
     for u, v, data in G.edges(data=True):
+        if u not in pos or v not in pos:
+            continue
         rel = data.get("relation", "other")
         if rel not in edge_x:
             rel = "other"
@@ -89,17 +177,16 @@ def generate_visualization(
         x0, y0 = pos[u]
         x1, y1 = pos[v]
 
-        edge_x[rel].extend([x0, x1, None])
-        edge_y[rel].extend([y0, y1, None])
+        edge_x[rel].extend([float(x0), float(x1), None])
+        edge_y[rel].extend([float(y0), float(y1), None])
 
-    # Edge colors with soft opacities
     edge_colors = {
-        "imports": "rgba(59, 130, 246, 0.25)",  # Blue
-        "calls": "rgba(239, 68, 68, 0.25)",  # Red
-        "inherits": "rgba(168, 85, 247, 0.35)",  # Purple
-        "implements": "rgba(192, 132, 252, 0.35)",  # Light Purple
-        "contains": "rgba(156, 163, 175, 0.15)",  # Thin Gray
-        "other": "rgba(255, 255, 255, 0.15)",  # Semi-transparent White
+        "imports": "rgba(59, 130, 246, 0.25)",
+        "calls": "rgba(239, 68, 68, 0.25)",
+        "inherits": "rgba(168, 85, 247, 0.35)",
+        "implements": "rgba(192, 132, 252, 0.35)",
+        "contains": "rgba(156, 163, 175, 0.15)",
+        "other": "rgba(255, 255, 255, 0.15)",
     }
 
     for rel in edge_x:
@@ -120,7 +207,6 @@ def generate_visualization(
                 )
             )
 
-    # 2. Draw Nodes as Scatter Traces
     for ntype, nodes in sorted(nodes_by_type.items()):
         node_x = []
         node_y = []
@@ -131,50 +217,38 @@ def generate_visualization(
 
         for node_id, data in nodes:
             x, y = pos[node_id]
-            node_x.append(x)
-            node_y.append(y)
+            node_x.append(float(x))
+            node_y.append(float(y))
 
-            # Node Size based on degree (number of connections)
             deg = G.degree(node_id)
             node_sizes.append(10 + min(deg * 1.5, 30))
 
-            # Tooltip Details
             label = data.get("label", node_id)
             source_file = data.get("source_file", "N/A")
             line_start = data.get("line_start", "?")
             line_end = data.get("line_end", "?")
+            component = node_to_component.get(node_id, "Unassigned")
 
-            tooltip = f"<b>{label}</b> ({ntype.capitalize()})"
+            tooltip = f"<b>{label}</b> ({ntype.capitalize()})<br><sub>{component}</sub>"
             node_text.append(tooltip)
 
-            # Build detailed lists for incoming/outgoing connections to display in the side panel
-            incoming = []
-            for u, v in G.in_edges(node_id):
-                incoming.append(
-                    {
-                        "label": G.nodes[u].get("label", u),
-                        "type": G.nodes[u].get("type", "unknown"),
-                    }
-                )
-
-            outgoing = []
-            for u, v in G.out_edges(node_id):
-                outgoing.append(
-                    {
-                        "label": G.nodes[v].get("label", v),
-                        "type": G.nodes[v].get("type", "unknown"),
-                    }
-                )
+            incoming = [
+                {
+                    "label": G.nodes[u].get("label", u),
+                    "type": G.nodes[u].get("type", "unknown"),
+                }
+                for u, _ in G.in_edges(node_id)
+            ]
+            outgoing = [
+                {
+                    "label": G.nodes[v].get("label", v),
+                    "type": G.nodes[v].get("type", "unknown"),
+                }
+                for _, v in G.out_edges(node_id)
+            ]
 
             sig = data.get("signature", "")
             doc = data.get("docstring", "")
-            if doc:
-                doc = (
-                    doc.replace("&", "&amp;")
-                    .replace("<", "&lt;")
-                    .replace(">", "&gt;")
-                    .replace("\n", "<br>")
-                )
 
             customdata.append(
                 [
@@ -187,6 +261,7 @@ def generate_visualization(
                     doc,
                     json.dumps(incoming),
                     json.dumps(outgoing),
+                    component,
                 ]
             )
 
@@ -211,7 +286,6 @@ def generate_visualization(
             )
         )
 
-    # Figure Layout Settings
     fig.update_layout(
         showlegend=True,
         legend=dict(
@@ -230,11 +304,9 @@ def generate_visualization(
         yaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
     )
 
-    # Export raw HTML div and script (exclude main HTML body to wrap with custom UI template)
     raw_plotly_html = fig.to_html(include_plotlyjs="cdn", full_html=False)
 
-    # Custom HTML Template with glassmorphism sidebar
-    custom_ui_html = f"""<!DOCTYPE html>
+    return f"""<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -316,6 +388,12 @@ def generate_visualization(
         #panel-content {{
             display: none;
         }}
+        .badge-row {{
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-bottom: 14px;
+        }}
         .badge {{
             display: inline-block;
             font-size: 0.7rem;
@@ -324,7 +402,12 @@ def generate_visualization(
             border-radius: 6px;
             text-transform: uppercase;
             letter-spacing: 0.05em;
-            margin-bottom: 14px;
+        }}
+        .badge-component {{
+            background: rgba(148, 163, 184, 0.12);
+            color: #cbd5e1;
+            border: 1px solid rgba(148, 163, 184, 0.25);
+            text-transform: none;
         }}
         .badge-file {{ background: rgba(59, 130, 246, 0.15); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.3); }}
         .badge-class {{ background: rgba(168, 85, 247, 0.15); color: #c084fc; border: 1px solid rgba(168, 85, 247, 0.3); }}
@@ -333,7 +416,7 @@ def generate_visualization(
         .badge-enum {{ background: rgba(134, 25, 143, 0.15); color: #f5d0fe; border: 1px solid rgba(134, 25, 143, 0.3); }}
         .badge-function {{ background: rgba(16, 185, 129, 0.15); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.3); }}
         .badge-method {{ background: rgba(239, 68, 68, 0.15); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.3); }}
-        
+
         .section-title {{
             font-size: 0.75rem;
             font-weight: 700;
@@ -376,6 +459,7 @@ def generate_visualization(
             padding: 12px;
             border-radius: 8px;
             border-left: 3px solid #475569;
+            white-space: pre-wrap;
         }}
         ul.connections {{
             list-style: none;
@@ -406,7 +490,7 @@ def generate_visualization(
         .indicator-enum {{ background: #86198f; box-shadow: 0 0 8px #86198f; }}
         .indicator-function {{ background: #10b981; box-shadow: 0 0 8px #10b981; }}
         .indicator-method {{ background: #ef4444; box-shadow: 0 0 8px #ef4444; }}
-        
+
         .type-text {{
             color: #64748b;
             font-size: 0.7rem;
@@ -417,7 +501,6 @@ def generate_visualization(
             color: #475569;
             font-style: italic;
         }}
-        /* Custom scrollbar for panel */
         #details-panel::-webkit-scrollbar {{
             width: 6px;
         }}
@@ -443,7 +526,7 @@ def generate_visualization(
                 <h2>Codegraph Gen</h2>
                 <p class="subtitle">Interactive architecture topology</p>
             </div>
-            
+
             <div id="panel-placeholder">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                     <circle cx="12" cy="12" r="10"></circle>
@@ -452,27 +535,30 @@ def generate_visualization(
                 </svg>
                 <p>Hover over any symbol node in the topology network to display its class definitions, docstrings, and detailed call relationships.</p>
             </div>
-            
+
             <div id="panel-content">
-                <span id="node-type-badge" class="badge">class</span>
+                <div class="badge-row">
+                    <span id="node-type-badge" class="badge">class</span>
+                    <span id="node-component-badge" class="badge badge-component">Component</span>
+                </div>
                 <h3 id="node-name" style="font-size: 1.25rem; font-weight: 700; color: #f8fafc; margin-bottom: 12px; letter-spacing: -0.02em;">MyClass</h3>
-                
+
                 <div class="section-title">Physical File Location</div>
                 <div id="node-file" class="file-info">src/main.py (L10-L45)</div>
-                
+
                 <div id="signature-container">
                     <div class="section-title">Definition Signature</div>
                     <pre><code id="node-signature">def my_method(self) -> str</code></pre>
                 </div>
-                
+
                 <div class="section-title">Documentation / Docstring</div>
                 <div id="node-docstring" class="docstring">No documentation provided.</div>
-                
+
                 <div class="section-title">Incoming Dependencies (Calls / Imports)</div>
                 <ul id="node-incoming" class="connections">
                     <li class="no-connections">None</li>
                 </ul>
-                
+
                 <div class="section-title">Outgoing Dependencies (Calls)</div>
                 <ul id="node-outgoing" class="connections">
                     <li class="no-connections">None</li>
@@ -480,71 +566,73 @@ def generate_visualization(
             </div>
         </div>
     </div>
-    
+
     <script>
+        function renderConnectionList(listEl, items) {{
+            listEl.innerHTML = '';
+            if (!items.length) {{
+                const li = document.createElement('li');
+                li.className = 'no-connections';
+                li.textContent = 'None';
+                listEl.appendChild(li);
+                return;
+            }}
+            items.forEach(item => {{
+                const li = document.createElement('li');
+                li.className = 'connection-item';
+
+                const dot = document.createElement('span');
+                dot.className = `indicator indicator-${{item.type}}`;
+
+                const labelEl = document.createElement('b');
+                labelEl.textContent = item.label;
+
+                const typeEl = document.createElement('span');
+                typeEl.className = 'type-text';
+                typeEl.textContent = `(${{item.type}})`;
+
+                li.appendChild(dot);
+                li.appendChild(labelEl);
+                li.appendChild(typeEl);
+                listEl.appendChild(li);
+            }});
+        }}
+
         function connectPlotly() {{
             const gd = document.getElementsByClassName('plotly-graph-div')[0];
             if (gd && gd.on) {{
-                console.log("Plotly object initialized, binding hover events...");
                 gd.on('plotly_hover', function(eventData) {{
                     const pt = eventData.points[0];
                     if (pt.customdata) {{
-                        const [node_id, label, ntype, source_file, lines, signature, docstring, incoming_json, outgoing_json] = pt.customdata;
-                        
-                        // Update Node Title and Badge
-                        document.getElementById('node-name').innerText = label;
+                        const [node_id, label, ntype, source_file, lines, signature, docstring, incoming_json, outgoing_json, component] = pt.customdata;
+
+                        document.getElementById('node-name').textContent = label;
                         const badge = document.getElementById('node-type-badge');
-                        badge.innerText = ntype;
+                        badge.textContent = ntype;
                         badge.className = `badge badge-${{ntype}}`;
-                        
-                        // Update File Info
-                        document.getElementById('node-file').innerText = `${{source_file}} (${{lines}})`;
-                        
-                        // Update Signature
+
+                        document.getElementById('node-component-badge').textContent = component || 'Unassigned';
+                        document.getElementById('node-file').textContent = `${{source_file}} (${{lines}})`;
+
                         const sigContainer = document.getElementById('signature-container');
                         const sigCode = document.getElementById('node-signature');
                         if (signature) {{
-                            sigCode.innerText = signature;
+                            sigCode.textContent = signature;
                             sigContainer.style.display = 'block';
                         }} else {{
                             sigContainer.style.display = 'none';
                         }}
-                        
-                        // Update Docstring
+
                         const docDiv = document.getElementById('node-docstring');
-                        docDiv.innerHTML = docstring ? docstring : '<i>No documentation / docstring available.</i>';
-                        
-                        // Update Incoming Calls
-                        const incoming = JSON.parse(incoming_json);
-                        const incList = document.getElementById('node-incoming');
-                        incList.innerHTML = '';
-                        if (incoming.length > 0) {{
-                            incoming.forEach(item => {{
-                                const li = document.createElement('li');
-                                li.className = 'connection-item';
-                                li.innerHTML = `<span class="indicator indicator-${{item.type}}"></span> <b>${{item.label}}</b> <span class="type-text">(${{item.type}})</span>`;
-                                incList.appendChild(li);
-                            }});
+                        if (docstring) {{
+                            docDiv.textContent = docstring;
                         }} else {{
-                            incList.innerHTML = '<li class="no-connections">None</li>';
+                            docDiv.innerHTML = '<i>No documentation / docstring available.</i>';
                         }}
-                        
-                        // Update Outgoing Calls
-                        const outgoing = JSON.parse(outgoing_json);
-                        const outList = document.getElementById('node-outgoing');
-                        outList.innerHTML = '';
-                        if (outgoing.length > 0) {{
-                            outgoing.forEach(item => {{
-                                const li = document.createElement('li');
-                                li.className = 'connection-item';
-                                li.innerHTML = `<span class="indicator indicator-${{item.type}}"></span> <b>${{item.label}}</b> <span class="type-text">(${{item.type}})</span>`;
-                                outList.appendChild(li);
-                            }});
-                        }} else {{
-                            outList.innerHTML = '<li class="no-connections">None</li>';
-                        }}
-                        
-                        // Toggle panels
+
+                        renderConnectionList(document.getElementById('node-incoming'), JSON.parse(incoming_json));
+                        renderConnectionList(document.getElementById('node-outgoing'), JSON.parse(outgoing_json));
+
                         document.getElementById('panel-placeholder').style.display = 'none';
                         document.getElementById('panel-content').style.display = 'block';
                     }}
@@ -559,9 +647,32 @@ def generate_visualization(
 </html>
 """
 
+
+def generate_visualization(
+    workspace_dir: Path, output_dir: Path, open_browser: bool = True
+) -> Path:
+    """Export an interactive HTML visualization from the built knowledge graph."""
+    try:
+        import plotly.graph_objects as go
+    except ImportError:
+        raise ImportError(
+            "Plotly is not installed. Please run 'pip install \"codegraph-gen[viz]\"' or 'uv pip install plotly'."
+        )
+
+    try:
+        import numpy  # noqa: F401
+    except ImportError:
+        raise ImportError(
+            "NumPy is not installed. Please run 'pip install \"codegraph-gen[viz]\"' or 'uv pip install numpy'."
+        )
+
+    G, node_to_component = _load_graph_for_visualization(workspace_dir, output_dir)
+    pos = _compute_layout(G)
+    custom_ui_html = _build_plotly_html(G, pos, node_to_component, go)
+
     export_path = output_dir / "graph.html"
-    with open(export_path, "w", encoding="utf-8") as f:
-        f.write(custom_ui_html)
+    export_path.parent.mkdir(parents=True, exist_ok=True)
+    export_path.write_text(custom_ui_html, encoding="utf-8")
 
     if open_browser:
         webbrowser.open(f"file://{export_path}")

@@ -4,6 +4,77 @@ import re
 from abc import ABC, abstractmethod
 
 
+_DEFAULT_COMMON_BUILTIN_METHODS: frozenset[str] = frozenset(
+    {
+        "append",
+        "decode",
+        "encode",
+        "insert",
+        "remove",
+        "contains",
+        "push",
+        "pop",
+        "split",
+        "join",
+        "map",
+        "filter",
+        "reduce",
+        "forEach",
+        "sorted",
+        "count",
+        "length",
+        "size",
+        "isEmpty",
+        "resume",
+        "cancel",
+        "suspend",
+        "start",
+        "stop",
+        "send",
+        "receive",
+        "len",
+        "new",
+        "is_empty",
+        "clone",
+        "default",
+        "parse",
+        "format",
+        "read",
+        "write",
+        "close",
+        "flush",
+        "to_string",
+        "to_str",
+        "as_str",
+        "as_ref",
+        "as_mut",
+        "unwrap",
+        "expect",
+        "iter",
+        "iter_mut",
+        "into_iter",
+        "next",
+        "into",
+        "from",
+        "ok",
+        "err",
+        "clear",
+        "get",
+        "set",
+        "add",
+        "keys",
+        "values",
+        "items",
+        "update",
+        "copy",
+        "find",
+        "index",
+        "last",
+        "first",
+    }
+)
+
+
 class LanguageResolverStrategy(ABC):
     @property
     @abstractmethod
@@ -22,6 +93,13 @@ class LanguageResolverStrategy(ABC):
     @property
     def stdlib_modules(self) -> set[str]:
         return set()
+
+    @property
+    def common_builtin_methods(self) -> frozenset[str]:
+        return _DEFAULT_COMMON_BUILTIN_METHODS
+
+    def is_common_builtin_method(self, name: str) -> bool:
+        return name in self.common_builtin_methods
 
     @property
     def import_search_suffixes(self) -> list[str]:
@@ -120,11 +198,9 @@ def _unwrap_type_name(raw: str) -> str | None:
     return leaf or None
 
 
-
 def extract_arrow_return_type(signature: str) -> str | None:
     match = re.search(r"->\s*([^:{(\n]+)", signature)
     if match:
         ret_type = match.group(1).strip()
         return _unwrap_type_name(ret_type)
     return None
-

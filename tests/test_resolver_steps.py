@@ -40,6 +40,18 @@ def make_test_context(
     if wildcard_imports:
         scope.wildcard_imports.extend(wildcard_imports)
 
+    from pathlib import Path
+
+    raw_nodes = graph_nodes or {}
+    dir_to_symbols: dict[str, list[str]] = {}
+    file_to_nodes: dict[str, list[str]] = {}
+    for nid, ndata in raw_nodes.items():
+        sf = ndata.get("source_file", "")
+        if sf:
+            file_to_nodes.setdefault(sf, []).append(nid)
+            if ndata.get("type") != "file":
+                dir_to_symbols.setdefault(str(Path(sf).parent), []).append(nid)
+
     parts_tuple = tuple(parts)
     main_symbol = parts_tuple[0] if parts_tuple else ""
     rest_of_callee = ".".join(parts_tuple[1:]) if len(parts_tuple) > 1 else ""
@@ -55,9 +67,13 @@ def make_test_context(
         scope=scope,
         local_bindings=MappingProxyType(local_bindings or {}),
         node_ids=frozenset(node_ids or set()),
-        graph_nodes=graph_nodes or {},
+        graph_nodes=raw_nodes,
         global_symbol_map=MappingProxyType(global_symbol_map or {}),
         return_types=MappingProxyType(return_types or {}),
+        dir_to_symbols=MappingProxyType(
+            {k: tuple(v) for k, v in dir_to_symbols.items()}
+        ),
+        file_to_nodes=MappingProxyType({k: tuple(v) for k, v in file_to_nodes.items()}),
     )
 
 

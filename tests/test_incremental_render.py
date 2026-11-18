@@ -91,14 +91,14 @@ def test_engine_reuses_node_pages_on_second_build(tmp_path: Path):
     engine = CodegraphEngine()
     r1 = engine.run_pipeline(config)
     assert r1.graph.number_of_nodes() > 0
-    stats1 = r1.graph.graph.get("render_stats", {})
-    assert stats1.get("nodes_rendered", 0) > 0
+    assert r1.render_stats is not None
+    assert r1.render_stats.nodes_rendered > 0
 
     r2 = engine.run_pipeline(config)
-    stats2 = r2.graph.graph.get("render_stats", {})
+    assert r2.render_stats is not None
     # Second build should reuse most node pages
-    assert stats2.get("nodes_reused", 0) >= 1
-    assert stats2.get("dirty_files", 1) == 0
+    assert r2.render_stats.nodes_reused >= 1
+    assert r2.render_stats.dirty_files == 0
 
     # Touch file → dirty + re-render some pages
     (src / "hello.py").write_text(
@@ -106,6 +106,37 @@ def test_engine_reuses_node_pages_on_second_build(tmp_path: Path):
         encoding="utf-8",
     )
     r3 = engine.run_pipeline(config)
-    stats3 = r3.graph.graph.get("render_stats", {})
-    assert stats3.get("dirty_files", 0) >= 1
-    assert stats3.get("nodes_rendered", 0) >= 1
+    assert r3.render_stats is not None
+    assert r3.render_stats.dirty_files >= 1
+    assert r3.render_stats.nodes_rendered >= 1
+
+
+def test_ai_insights_baseline_drift_notice_not_duplicated(tmp_path: Path):
+    from codegraph_gen.pipeline_stages import _load_preserved_ai_insights
+
+    src = tmp_path / "app.py"
+    src.write_text("def a():\n    pass\n", encoding="utf-8")
+    out = tmp_path / ".codegraph"
+    out.mkdir(parents=True)
+    (out / "README.md").write_text(
+        "# Codebase Knowledge Graph\n\n## AI Architectural Insights\n"
+        "> ⚠️ *Baseline drift notice: old*\n\n"
+        "*Generated from graph stats: 99 files · 999 symbols · 100 edges.*\n",
+        encoding="utf-8",
+    )
+
+    preserved = _load_preserved_ai_insights(out)
+    assert preserved is not None
+    assert "Baseline drift notice" not in preserved
+
+    config = CodegraphConfig(
+        workspace_dir=tmp_path,
+        output_dir=out,
+        languages={"python"},
+        max_workers=1,
+        use_cache=False,
+        export_json=False,
+    )
+    CodegraphEngine().run_pipeline(config)
+    readme = (out / "README.md").read_text(encoding="utf-8")
+    assert readme.count("Baseline drift notice") == 1

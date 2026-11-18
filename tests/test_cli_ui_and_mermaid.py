@@ -13,7 +13,12 @@ from codegraph_gen.cli_ui import (
     update_pipeline_progress,
 )
 from codegraph_gen.config import CodegraphConfig, ProjectConfig
-from codegraph_gen.engine import PipelineResult, PipelineStage
+from codegraph_gen.engine import (
+    PipelineResult,
+    PipelineStage,
+    RenderStats,
+    VaultWriteStats,
+)
 from codegraph_gen.mermaid_util import (
     build_mermaid_call_edge,
     render_component_flowchart,
@@ -25,7 +30,9 @@ from codegraph_gen.mermaid_util import (
 
 def test_mermaid_util_sanitization_and_edges():
     assert sanitize_mermaid_id("foo/bar:baz.py") == "foo_bar_baz_py"
-    assert sanitize_mermaid_label('Hello "World" \\ Test') == 'Hello \\"World\\" \\\\ Test'
+    assert (
+        sanitize_mermaid_label('Hello "World" \\ Test') == 'Hello \\"World\\" \\\\ Test'
+    )
 
     edge = build_mermaid_call_edge("src.a", "ClassA", "src.b", 'Method"B"')
     assert 'src_a["ClassA"] --> src_b["Method\\"B\\""]' in edge
@@ -35,7 +42,7 @@ def test_mermaid_util_node_calls_and_clipping():
     empty_block = render_node_call_graph_block([])
     assert empty_block == []
 
-    calls = [f"  node_{i} --> node_{i+1}" for i in range(10)]
+    calls = [f"  node_{i} --> node_{i + 1}" for i in range(10)]
     rendered = render_node_call_graph_block(calls, max_edges=5)
     assert rendered[0] == "```mermaid"
     assert rendered[1] == "flowchart TD"
@@ -89,15 +96,6 @@ def test_cli_ui_progress_and_prints(tmp_path: Path):
     G.add_node("file.py", type="file")
     G.add_node("file.py:func", type="function")
     G.add_edge("file.py:func", "file.py")
-    G.graph["vault_write_stats"] = {"written": 2, "skipped": 0, "removed": 0}
-    G.graph["render_stats"] = {
-        "nodes_rendered": 2,
-        "nodes_reused": 0,
-        "components_rendered": 1,
-        "components_reused": 0,
-        "dirty_files": 1,
-    }
-    G.graph["pipeline_reused_snapshot"] = True
 
     stats = ResolutionStats(
         attempted=10,
@@ -115,6 +113,15 @@ def test_cli_ui_progress_and_prints(tmp_path: Path):
             god_nodes=[], cycles=[], inter_comp_deps={}, resolution=stats
         ),
         parse_errors=["sample_error.py: error"],
+        write_stats=VaultWriteStats(written=2, skipped=0, removed=0),
+        render_stats=RenderStats(
+            nodes_rendered=2,
+            nodes_reused=0,
+            components_rendered=1,
+            components_reused=0,
+            dirty_files=1,
+        ),
+        reused_snapshot=True,
     )
     cfg = CodegraphConfig(
         workspace_dir=tmp_path,

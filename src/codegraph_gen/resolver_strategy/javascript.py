@@ -1,5 +1,8 @@
 import re
-from codegraph_gen.resolver_strategy.base import LanguageResolverStrategy, _unwrap_type_name
+from codegraph_gen.resolver_strategy.base import (
+    LanguageResolverStrategy,
+    _unwrap_type_name,
+)
 
 
 class JavaScriptStrategy(LanguageResolverStrategy):
@@ -56,4 +59,3 @@ class TypeScriptStrategy(JavaScriptStrategy):
         if match:
             return _unwrap_type_name(match.group(1))
         return None
-

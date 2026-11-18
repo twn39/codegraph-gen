@@ -11,14 +11,12 @@ from __future__ import annotations
 import concurrent.futures
 from dataclasses import dataclass, field
 from enum import Enum
-import hashlib
-import json
 import logging
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import networkx as nx
-from pydantic import BaseModel, ConfigDict, TypeAdapter
+from pydantic import BaseModel, ConfigDict
 
 from codegraph_gen.analyzer import AnalysisResult, ResolutionStats, analyze_graph
 from codegraph_gen.builder import build_graph
@@ -29,10 +27,13 @@ from codegraph_gen.incremental import (
     PIPELINE_SNAPSHOT_NAME,
     SIGNATURE_STORE_NAME,
     component_signature,
+    get_file_hash,
     import_dependents,
+    load_cache_entries,
     load_pipeline_snapshot,
     load_signature_store,
     node_neighborhood_signature,
+    save_cache_entries,
     save_pipeline_snapshot,
     save_signature_store,
     should_force_render_node,
@@ -49,7 +50,6 @@ from codegraph_gen.writer import VaultWriter
 
 logger = logging.getLogger(__name__)
 
-_CACHE_ADAPTER: TypeAdapter[dict[str, CacheEntry]] = TypeAdapter(dict[str, CacheEntry])
 _WORKER_PARSER_CACHE: dict[str, Any] = {}
 
 
@@ -69,6 +69,25 @@ class PipelineStage(str, Enum):
 ProgressCallback = Callable[[PipelineStage, Any, int, int], None]
 
 
+class RenderStats(BaseModel):
+    """Incremental Markdown rendering metrics."""
+
+    nodes_rendered: int = 0
+    nodes_reused: int = 0
+    components_rendered: int = 0
+    components_reused: int = 0
+    dirty_files: int = 0
+    force_files: int = 0
+
+
+class VaultWriteStats(BaseModel):
+    """Vault file sync metrics."""
+
+    written: int = 0
+    skipped: int = 0
+    removed: int = 0
+
+
 class PipelineResult(BaseModel):
     """Final result bundle returned by CodegraphEngine."""
 
@@ -81,6 +100,9 @@ class PipelineResult(BaseModel):
     component_names: Dict[int, str]
     analysis: AnalysisResult
     parse_errors: List[str] = []
+    render_stats: RenderStats | None = None
+    write_stats: VaultWriteStats | None = None
+    reused_snapshot: bool = False
 
 
 @dataclass
@@ -102,10 +124,13 @@ class PipelineContext:
     cohesion_scores: dict[int, float] = field(default_factory=dict)
     component_names: dict[int, str] = field(default_factory=dict)
     analysis: AnalysisResult | None = None
+    reused_snapshot: bool = False
 
     rendered_nodes: dict[str, str] = field(default_factory=dict)
     rendered_components: dict[str, str] = field(default_factory=dict)
     new_signatures: dict[str, str] = field(default_factory=dict)
+    render_stats: RenderStats | None = None
+    write_stats: VaultWriteStats | None = None
     readme_content: str = ""
     prompt_content: str = ""
 
@@ -131,18 +156,6 @@ def _get_worker_parser(lang: str) -> Any:
         parser = get_parser(lang)
         _WORKER_PARSER_CACHE[lang] = parser
     return parser
-
-
-def get_file_hash(path: Path) -> str:
-    """Computes MD5 hash of a file."""
-    hasher = hashlib.md5()
-    try:
-        with open(path, "rb") as f:
-            for chunk in iter(lambda: f.read(4096), b""):
-                hasher.update(chunk)
-    except Exception:
-        return ""
-    return hasher.hexdigest()
 
 
 def _parse_file_worker(
@@ -185,29 +198,6 @@ def _parse_chunk_worker(
     return results
 
 
-def _load_cache_entries(cache_path: Path) -> dict[str, CacheEntry]:
-    """Loads cache entries using fast adapter with standard JSON fallback."""
-    cache_entries: dict[str, CacheEntry] = {}
-    if not cache_path.exists():
-        return cache_entries
-    try:
-        raw_bytes = cache_path.read_bytes()
-        if raw_bytes:
-            cache_entries = _CACHE_ADAPTER.validate_json(raw_bytes)
-            logger.info(f"Loaded {len(cache_entries)} cache entries.")
-    except Exception as e:
-        logger.warning(f"Could not load cache with fast adapter, trying fallback: {e}")
-        try:
-            with open(cache_path, "r", encoding="utf-8") as f:
-                cache_data = json.load(f)
-                for k, v in cache_data.items():
-                    cache_entries[k] = CacheEntry(**v)
-            logger.info(f"Loaded {len(cache_entries)} cache entries via fallback.")
-        except Exception as e2:
-            logger.warning(f"Could not load cache: {e2}")
-    return cache_entries
-
-
 # ── Pipeline Stage Runners ──────────────────────────────────────────────────
 
 
@@ -236,7 +226,7 @@ def parse_files_with_cache(
 ) -> tuple[list[ExtractionResult], set[str], dict[str, CacheEntry], list[str]]:
     """Parses source files with caching and parallel worker pools."""
     total_files = len(files)
-    cache_entries = _load_cache_entries(cache_path) if config.use_cache else {}
+    cache_entries = load_cache_entries(cache_path) if config.use_cache else {}
 
     extractions: list[ExtractionResult] = []
     files_to_parse: list[tuple[Path, str, str, float, int, str, int]] = []
@@ -267,6 +257,22 @@ def parse_files_with_cache(
                     continue
 
             file_hash = get_file_hash(file_path)
+            if (
+                rel_path in cache_entries
+                and file_hash
+                and cache_entries[rel_path].hash == file_hash
+            ):
+                entry = cache_entries[rel_path]
+                extractions.append(entry.result)
+                new_cache_entries[rel_path] = CacheEntry(
+                    mtime=mtime,
+                    size=size,
+                    hash=file_hash,
+                    result=entry.result,
+                    mtime_ns=mtime_ns,
+                )
+                continue
+
             dirty_files.add(rel_path)
             files_to_parse.append(
                 (file_path, lang, rel_path, mtime, size, file_hash, mtime_ns)
@@ -452,7 +458,7 @@ def run_stage_build_and_cluster(ctx: PipelineContext) -> bool:
             ctx.component_names = snap.component_names
             ctx.analysis = snap.analysis
             reused_snapshot = True
-            ctx.graph.graph["pipeline_reused_snapshot"] = True
+            ctx.reused_snapshot = True
             logger.info("Skipped build/cluster/analyze (pipeline snapshot hit).")
 
     if not reused_snapshot:
@@ -472,7 +478,7 @@ def run_stage_build_and_cluster(ctx: PipelineContext) -> bool:
 
         notify(ctx, PipelineStage.ANALYZING)
         ctx.analysis = analyze_graph(ctx.graph, ctx.components)
-        ctx.graph.graph["pipeline_reused_snapshot"] = False
+        ctx.reused_snapshot = False
     else:
         notify(ctx, PipelineStage.ANALYZING)
 
@@ -499,14 +505,20 @@ def _enforce_quality_gates(
         return
     res = resolution
 
-    if config.min_resolve_rate is not None and res.resolve_rate < config.min_resolve_rate:
+    if (
+        config.min_resolve_rate is not None
+        and res.resolve_rate < config.min_resolve_rate
+    ):
         raise RuntimeError(
             f"Edge resolve rate {res.resolve_rate:.1%} is below "
             f"min_resolve_rate={config.min_resolve_rate:.1%} "
             f"({res.resolved}/{res.attempted} resolved, {res.unresolved} unresolved)"
         )
 
-    if config.max_unresolved_edges is not None and res.unresolved > config.max_unresolved_edges:
+    if (
+        config.max_unresolved_edges is not None
+        and res.unresolved > config.max_unresolved_edges
+    ):
         raise RuntimeError(
             f"Unresolved edges {res.unresolved} exceed "
             f"max_unresolved_edges={config.max_unresolved_edges} "
@@ -552,7 +564,14 @@ def _render_incremental(
     component_names: dict[int, str],
     analysis: AnalysisResult,
     dirty_files: set[str],
-) -> tuple[dict[str, str], dict[str, str], dict[str, str], set[str], set[str]]:
+) -> tuple[
+    dict[str, str],
+    dict[str, str],
+    dict[str, str],
+    set[str],
+    set[str],
+    RenderStats,
+]:
     """Render node/component pages with signature-based skip when cache on."""
     node_component_map: dict[str, str] = {}
     for cid, members in components.items():
@@ -639,21 +658,21 @@ def _render_incremental(
         comps_rendered,
         comps_reused,
     )
-    G.graph["render_stats"] = {
-        "nodes_rendered": nodes_rendered,
-        "nodes_reused": nodes_reused,
-        "components_rendered": comps_rendered,
-        "components_reused": comps_reused,
-        "dirty_files": len(dirty_files),
-        "force_files": len(force_files),
-    }
-    G.graph["_signature_store_path"] = str(sig_path)
+    render_stats = RenderStats(
+        nodes_rendered=nodes_rendered,
+        nodes_reused=nodes_reused,
+        components_rendered=comps_rendered,
+        components_reused=comps_reused,
+        dirty_files=len(dirty_files),
+        force_files=len(force_files),
+    )
     return (
         rendered_nodes,
         rendered_components,
         new_sigs,
         skipped_nodes,
         skipped_components,
+        render_stats,
     )
 
 
@@ -674,11 +693,16 @@ def _load_preserved_ai_insights(output_dir: Path) -> str | None:
                 break
         if marker:
             parts = old_readme.split(marker, 1)
-            insights_text = parts[1].strip()
+            lines = parts[1].strip().splitlines()
+            while lines and lines[0].lstrip().startswith("> ⚠️ *Baseline drift notice:"):
+                lines.pop(0)
+            insights_text = "\n".join(lines).strip()
             if insights_text:
                 return insights_text
     except Exception as e:
-        logger.warning(f"Could not read existing README.md to preserve AI insights: {e}")
+        logger.warning(
+            f"Could not read existing README.md to preserve AI insights: {e}"
+        )
     return None
 
 
@@ -696,6 +720,7 @@ def run_stage_render(
         ctx.new_signatures,
         skipped_nodes,
         skipped_components,
+        ctx.render_stats,
     ) = _render_incremental(
         ctx.config,
         renderer,
@@ -762,9 +787,7 @@ def _save_cache_and_signatures(
     if not config.use_cache or cache_path is None:
         return
     try:
-        config.absolute_output_dir.mkdir(parents=True, exist_ok=True)
-        cache_path.write_bytes(_CACHE_ADAPTER.dump_json(new_cache_entries))
-        logger.info(f"Saved {len(new_cache_entries)} cache entries.")
+        save_cache_entries(cache_path, new_cache_entries)
         sig_path = config.absolute_output_dir / SIGNATURE_STORE_NAME
         save_signature_store(sig_path, new_sigs)
     except Exception as e:
@@ -791,13 +814,11 @@ def run_stage_write(
         skipped_nodes=skipped_nodes,
         skipped_components=skipped_components,
     )
-    ctx.graph.graph["vault_write_stats"] = {
-        "written": write_stats.written,
-        "skipped": write_stats.skipped,
-        "removed": write_stats.removed,
-    }
-    if ctx.parse_errors:
-        ctx.graph.graph["parse_errors"] = list(ctx.parse_errors)
+    ctx.write_stats = VaultWriteStats(
+        written=write_stats.written,
+        skipped=write_stats.skipped,
+        removed=write_stats.removed,
+    )
 
     if ctx.analysis is not None:
         _export_json_if_enabled(
@@ -864,6 +885,9 @@ def to_pipeline_result(ctx: PipelineContext) -> PipelineResult:
         component_names=ctx.component_names,
         analysis=ctx.analysis,
         parse_errors=ctx.parse_errors,
+        render_stats=ctx.render_stats,
+        write_stats=ctx.write_stats,
+        reused_snapshot=ctx.reused_snapshot,
     )
 
 

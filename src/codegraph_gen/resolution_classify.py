@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Literal
 
-from codegraph_gen.resolver_steps import COMMON_BUILTIN_METHODS
+from codegraph_gen.resolver_strategy.base import _DEFAULT_COMMON_BUILTIN_METHODS
 
 if TYPE_CHECKING:
     from codegraph_gen.resolver_strategy.base import LanguageResolverStrategy
@@ -91,7 +91,6 @@ def classify_edge_attempt(
     return _classify_symbol_target(target, global_symbol_map, strategy)
 
 
-
 def _classify_import_target(
     target: str,
     strategy: LanguageResolverStrategy | None,
@@ -133,7 +132,12 @@ def _classify_symbol_target(
         return "external"
 
     if len(parts) > 1:
-        if last in COMMON_BUILTIN_METHODS and main not in global_symbol_map:
+        is_common_method = (
+            strategy.is_common_builtin_method(last)
+            if strategy is not None
+            else (last in _DEFAULT_COMMON_BUILTIN_METHODS)
+        )
+        if is_common_method and main not in global_symbol_map:
             return "builtin"
         return "attribute"
 

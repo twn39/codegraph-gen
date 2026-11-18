@@ -138,22 +138,22 @@ def print_build_summary(result: PipelineResult, config: CodegraphConfig) -> None
             f"internal={res.category_unresolved('internal')}"
         )
 
-    write_stats = g.graph.get("vault_write_stats")
-    if write_stats:
+    if result.write_stats is not None:
+        ws = result.write_stats
         console.print(
-            f"  - Vault write: written={write_stats.get('written', 0)}, "
-            f"skipped={write_stats.get('skipped', 0)}, removed={write_stats.get('removed', 0)}"
+            f"  - Vault write: written={ws.written}, "
+            f"skipped={ws.skipped}, removed={ws.removed}"
         )
 
-    render_stats = g.graph.get("render_stats")
-    if render_stats:
+    if result.render_stats is not None:
+        rs = result.render_stats
         console.print(
             f"  - Incremental render: nodes "
-            f"{render_stats.get('nodes_rendered', 0)} rendered / "
-            f"{render_stats.get('nodes_reused', 0)} reused; components "
-            f"{render_stats.get('components_rendered', 0)} / "
-            f"{render_stats.get('components_reused', 0)} "
-            f"(dirty_files={render_stats.get('dirty_files', 0)})"
+            f"{rs.nodes_rendered} rendered / "
+            f"{rs.nodes_reused} reused; components "
+            f"{rs.components_rendered} / "
+            f"{rs.components_reused} "
+            f"(dirty_files={rs.dirty_files})"
         )
 
     if config.export_json:
@@ -172,7 +172,7 @@ def print_build_summary(result: PipelineResult, config: CodegraphConfig) -> None
         if len(result.parse_errors) > 5:
             console.print(f"      [dim]… and {len(result.parse_errors) - 5} more[/dim]")
 
-    if g.graph.get("pipeline_reused_snapshot"):
+    if result.reused_snapshot:
         console.print(
             "  - [cyan]Pipeline snapshot reused[/cyan] "
             "(skipped build/resolve/cluster/analyze)"

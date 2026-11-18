@@ -46,6 +46,12 @@ dependencies = [
     { name = "tree-sitter-typescript" },
 ]
 
+[package.optional-dependencies]
+viz = [
+    { name = "numpy" },
+    { name = "plotly" },
+]
+
 [package.dev-dependencies]
 dev = [
     { name = "numpy" },
@@ -59,6 +65,8 @@ dev = [
 requires-dist = [
     { name = "click", specifier = ">=8.0.0" },
     { name = "networkx", specifier = ">=3.0" },
+    { name = "numpy", marker = "extra == 'viz'", specifier = ">=1.20.0" },
+    { name = "plotly", marker = "extra == 'viz'", specifier = ">=5.0.0" },
     { name = "pydantic", specifier = ">=2.0.0" },
     { name = "rich", specifier = ">=13.0.0" },
     { name = "tree-sitter", specifier = ">=0.23.0" },
@@ -74,6 +82,7 @@ requires-dist = [
     { name = "tree-sitter-swift" },
     { name = "tree-sitter-typescript" },
 ]
+provides-extras = ["viz"]
 
 [package.metadata.requires-dev]
 dev = [

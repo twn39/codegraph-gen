@@ -42,7 +42,9 @@ def render_node_call_graph_block(calls: list[str], max_edges: int = 60) -> list[
     uniq_calls = sorted(set(calls))
     if len(uniq_calls) > max_edges:
         uniq_calls = uniq_calls[:max_edges]
-        uniq_calls.append(f"  %% ... and {len(calls) - max_edges} more calls omitted for readability")
+        uniq_calls.append(
+            f"  %% ... and {len(calls) - max_edges} more calls omitted for readability"
+        )
     return ["```mermaid", "flowchart TD", *uniq_calls, "```", ""]
 
 

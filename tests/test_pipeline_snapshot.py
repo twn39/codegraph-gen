@@ -110,13 +110,43 @@ def test_engine_reuses_snapshot_on_second_build(tmp_path: Path):
     engine = CodegraphEngine()
     r1 = engine.run_pipeline(config)
     assert r1.graph.number_of_nodes() >= 2
-    assert not r1.graph.graph.get("pipeline_reused_snapshot")
+    assert not r1.reused_snapshot
     assert (out / "pipeline_snapshot.json").is_file()
 
     r2 = engine.run_pipeline(config)
-    assert r2.graph.graph.get("pipeline_reused_snapshot") is True
+    assert r2.reused_snapshot is True
     assert r2.graph.number_of_nodes() == r1.graph.number_of_nodes()
     assert r2.components == r1.components
+
+
+def test_engine_reuses_snapshot_when_mtime_changes_but_content_unchanged(
+    tmp_path: Path,
+):
+    import os
+
+    src = tmp_path / "app.py"
+    src.write_text("def hello():\n    return 1\n", encoding="utf-8")
+    out = tmp_path / ".codegraph"
+    config = CodegraphConfig(
+        workspace_dir=tmp_path,
+        output_dir=out,
+        languages={"python"},
+        use_cache=True,
+        max_workers=1,
+        export_json=False,
+    )
+    engine = CodegraphEngine()
+    r1 = engine.run_pipeline(config)
+    assert not r1.reused_snapshot
+
+    # Bump mtime without altering file content
+    st = src.stat()
+    os.utime(src, ns=(st.st_atime_ns, st.st_mtime_ns + 1_000_000_000))
+
+    r2 = engine.run_pipeline(config)
+    assert r2.reused_snapshot is True
+    assert r2.render_stats is not None
+    assert r2.render_stats.dirty_files == 0
 
 
 def test_engine_rebuilds_when_source_changes(tmp_path: Path):
@@ -139,6 +169,6 @@ def test_engine_rebuilds_when_source_changes(tmp_path: Path):
         encoding="utf-8",
     )
     r2 = engine.run_pipeline(config)
-    assert not r2.graph.graph.get("pipeline_reused_snapshot")
+    assert not r2.reused_snapshot
     labels = {d.get("label") for _, d in r2.graph.nodes(data=True)}
     assert "world" in labels

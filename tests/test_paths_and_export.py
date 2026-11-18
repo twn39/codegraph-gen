@@ -123,3 +123,47 @@ def test_contains_edge_stats_count():
     assert stats.attempted == 2
     assert stats.resolved == 1
     assert stats.unresolved == 1
+
+
+def test_discover_files_glob_exclusions(tmp_path: Path):
+    from codegraph_gen.detect import discover_files
+
+    (tmp_path / "pkg").mkdir()
+    (tmp_path / "pkg" / "service.go").write_text("package pkg\n", encoding="utf-8")
+    (tmp_path / "pkg" / "service.pb.go").write_text("package pkg\n", encoding="utf-8")
+    (tmp_path / "pkg" / "generated").mkdir()
+    (tmp_path / "pkg" / "generated" / "mock.go").write_text(
+        "package generated\n", encoding="utf-8"
+    )
+
+    files = discover_files(
+        tmp_path,
+        languages={"go"},
+        exclusions={"*.pb.go", "*/generated"},
+    )
+    rels = {str(p.relative_to(tmp_path)) for p, _ in files}
+    assert rels == {"pkg/service.go"}
+
+
+def test_visualizer_consumes_graph_json_without_cache(tmp_path: Path):
+    import pytest
+
+    pytest.importorskip("plotly")
+    pytest.importorskip("numpy")
+
+    from codegraph_gen.visualizer import generate_visualization
+
+    G = _mini_graph(tmp_path)
+    components, cohesion, names = detect_components(G)
+    analysis = analyze_graph(G, components)
+    payload = graph_to_export_dict(G, components, cohesion, names, analysis)
+
+    out_dir = tmp_path / ".codegraph"
+    write_graph_json(out_dir / "graph.json", payload)
+    assert not (out_dir / "cache.json").exists()
+
+    html_path = generate_visualization(tmp_path, out_dir, open_browser=False)
+    assert html_path.is_file()
+    html_text = html_path.read_text(encoding="utf-8")
+    assert "Codegraph Gen" in html_text
+    assert "node-component-badge" in html_text
