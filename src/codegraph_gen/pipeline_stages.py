@@ -412,7 +412,8 @@ _parse_with_cache = parse_files_with_cache
 def run_stage_parse(ctx: PipelineContext, parse_fn: Any = None) -> None:
     """Stage 2: Parses files with incremental cache and parallel worker pools."""
     config = ctx.config
-    ctx.cache_path = config.absolute_output_dir / "cache.json"
+    cache_path = Path(config.absolute_output_dir) / "cache.json"
+    ctx.cache_path = cache_path
     fn = parse_fn if parse_fn is not None else parse_files_with_cache
 
     (
@@ -420,7 +421,7 @@ def run_stage_parse(ctx: PipelineContext, parse_fn: Any = None) -> None:
         ctx.dirty_files,
         ctx.cache_entries,
         ctx.parse_errors,
-    ) = fn(config, ctx.files, ctx.cache_path, ctx.progress_callback)
+    ) = fn(config, ctx.files, cache_path, ctx.progress_callback)
 
 
 def run_stage_build_and_cluster(ctx: PipelineContext) -> bool:
